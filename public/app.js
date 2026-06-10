@@ -1,0 +1,324 @@
+let products = [];
+let deliveryCharge = 50;
+let deliveryGstPercent = 5;
+let upiEnabled = false;
+let currentInvoice = null;
+let appliedCoupon = null;
+let appliedDiscount = 0;
+let consumerLookupTimer = null;
+const quantities = {};
+
+const fmt = (n) => `₹${Number(n).toFixed(2)}`;
+
+document.getElementById('lang-hi').addEventListener('click', () => setLang('hi'));
+document.getElementById('lang-en').addEventListener('click', () => setLang('en'));
+
+function setConsumerHint(text, isFound = false) {
+  const hint = document.getElementById('consumer-hint');
+  if (!hint) return;
+  hint.textContent = text;
+  hint.classList.toggle('consumer-found', isFound);
+}
+
+function resetConsumerLookup() {
+  document.getElementById('consumerNumber').value = '';
+  document.getElementById('consumerNumber').placeholder = t('consumerAuto');
+  setConsumerHint(t('consumerHint'));
+}
+
+async function lookupConsumerByPhone(phone) {
+  const digits = phone.replace(/\D/g, '').slice(-10);
+  if (digits.length !== 10) {
+    resetConsumerLookup();
+    return;
+  }
+
+  try {
+    const res = await fetch(`/api/consumers/lookup/${digits}`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Lookup failed');
+
+    const consumerField = document.getElementById('consumerNumber');
+    if (data.found) {
+      consumerField.value = data.consumerNumber;
+      setConsumerHint(t('consumerFound'), true);
+
+      const nameField = document.getElementById('customerName');
+      const addressField = document.getElementById('address');
+      if (!nameField.value.trim() && data.customerName) nameField.value = data.customerName;
+      if (!addressField.value.trim() && data.address) addressField.value = data.address;
+    } else {
+      consumerField.value = '';
+      consumerField.placeholder = t('consumerAuto');
+      setConsumerHint(t('consumerNew'));
+    }
+  } catch {
+    resetConsumerLookup();
+  }
+}
+
+function scheduleConsumerLookup() {
+  clearTimeout(consumerLookupTimer);
+  consumerLookupTimer = setTimeout(() => {
+    lookupConsumerByPhone(document.getElementById('phone').value);
+  }, 350);
+}
+
+document.getElementById('phone').addEventListener('input', scheduleConsumerLookup);
+document.getElementById('phone').addEventListener('blur', () => {
+  clearTimeout(consumerLookupTimer);
+  lookupConsumerByPhone(document.getElementById('phone').value);
+});
+
+function onLangChange() {
+  renderProducts();
+  const btn = document.getElementById('submit-btn');
+  if (btn && !btn.disabled) btn.textContent = t('placeOrder');
+  document.getElementById('apply-coupon-btn').textContent = t('applyCoupon');
+}
+
+function getCartItems() {
+  return products
+    .filter((p) => (quantities[p.id] || 0) > 0)
+    .map((p) => ({ productId: p.id, quantity: quantities[p.id] }));
+}
+
+async function loadProducts() {
+  const res = await fetch('/api/products');
+  const data = await res.json();
+  products = data.products;
+  deliveryCharge = data.deliveryCharge;
+  deliveryGstPercent = data.deliveryGstPercent ?? 5;
+  upiEnabled = data.business?.upiEnabled;
+  products.forEach((p) => { quantities[p.id] = 0; });
+
+  if (!upiEnabled) {
+    document.querySelector('input[value="cod"]').checked = true;
+    document.querySelector('input[value="upi"]').disabled = true;
+  }
+
+  applyTranslations();
+  renderProducts();
+  updatePreview();
+  initVoiceButtons();
+}
+
+function renderProducts() {
+  const list = document.getElementById('products-list');
+  list.innerHTML = products.map((p) => `
+    <div class="product-row">
+      <div class="product-info">
+        <div class="name">${productName(p.id, p.name)}</div>
+        <div class="price">${fmt(p.price)} ${t('gstSuffix')}</div>
+      </div>
+      <div class="qty-control">
+        <button type="button" onclick="changeQty('${p.id}', -1)">−</button>
+        <span id="qty-${p.id}">${quantities[p.id] || 0}</span>
+        <button type="button" onclick="changeQty('${p.id}', 1)">+</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function changeQty(id, delta) {
+  quantities[id] = Math.max(0, (quantities[id] || 0) + delta);
+  document.getElementById(`qty-${id}`).textContent = quantities[id];
+  clearCoupon();
+  updatePreview();
+}
+
+function calcPreview() {
+  let subtotal = 0;
+  let gst = 0;
+  products.forEach((p) => {
+    const qty = quantities[p.id] || 0;
+    if (qty > 0) {
+      const line = p.price * qty;
+      subtotal += line;
+      gst += (line * p.gstPercent) / 100;
+    }
+  });
+  const deliveryGst = (deliveryCharge * deliveryGstPercent) / 100;
+  const preDiscount = subtotal + gst + deliveryCharge + deliveryGst;
+  const total = Math.max(0, preDiscount - appliedDiscount);
+  return { subtotal, gst, delivery: deliveryCharge + deliveryGst, preDiscount, total };
+}
+
+function updatePreview() {
+  const { subtotal, gst, delivery, total } = calcPreview();
+  document.getElementById('preview-subtotal').textContent = fmt(subtotal);
+  document.getElementById('preview-gst').textContent = fmt(gst);
+  document.getElementById('preview-delivery').textContent = fmt(delivery);
+  document.getElementById('preview-total').textContent = fmt(total);
+
+  const discountRow = document.getElementById('discount-row');
+  if (appliedDiscount > 0) {
+    discountRow.classList.remove('hidden');
+    document.getElementById('preview-discount').textContent = `-${fmt(appliedDiscount)}`;
+  } else {
+    discountRow.classList.add('hidden');
+  }
+}
+
+function clearCoupon() {
+  appliedCoupon = null;
+  appliedDiscount = 0;
+  const msg = document.getElementById('coupon-msg');
+  msg.classList.add('hidden');
+}
+
+function showCouponMsg(text, isError = false) {
+  const msg = document.getElementById('coupon-msg');
+  msg.textContent = text;
+  msg.classList.remove('hidden', 'coupon-error', 'coupon-success');
+  msg.classList.add(isError ? 'coupon-error' : 'coupon-success');
+}
+
+document.getElementById('apply-coupon-btn').addEventListener('click', async () => {
+  const code = document.getElementById('couponCode').value.trim();
+  const items = getCartItems();
+  if (!items.length) {
+    showCouponMsg(t('selectOneCylinder'), true);
+    return;
+  }
+  if (!code) {
+    clearCoupon();
+    updatePreview();
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/coupons/validate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code, items }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || t('couponInvalid'));
+
+    appliedCoupon = data.coupon.code;
+    appliedDiscount = data.discount;
+    showCouponMsg(`${t('couponApplied')} (${data.coupon.code}: -${fmt(data.discount)})`);
+    updatePreview();
+  } catch (err) {
+    clearCoupon();
+    updatePreview();
+    showCouponMsg(err.message, true);
+  }
+});
+
+function getPaymentMethod() {
+  return document.querySelector('input[name="paymentMethod"]:checked')?.value || 'upi';
+}
+
+function showSuccess(data) {
+  currentInvoice = data.order.invoiceNumber;
+  document.getElementById('booking-section').classList.add('hidden');
+  document.getElementById('success-section').classList.remove('hidden');
+  document.getElementById('success-invoice').textContent = data.order.invoiceNumber;
+  document.getElementById('success-consumer').textContent = data.order.consumerNumber || '—';
+  document.getElementById('success-message').textContent = data.message;
+  document.getElementById('success-bill').textContent = data.order.billText;
+
+  const upiSection = document.getElementById('upi-section');
+  const paidBtn = document.getElementById('paid-btn');
+  if (data.upi) {
+    upiSection.classList.remove('hidden');
+    document.getElementById('upi-qr').src = data.upi.qrDataUrl;
+    document.getElementById('upi-link').href = data.upi.upiLink;
+    paidBtn.classList.remove('hidden');
+  } else {
+    upiSection.classList.add('hidden');
+    paidBtn.classList.add('hidden');
+  }
+
+  const waLink = document.getElementById('whatsapp-link');
+  const wa = data.notifications?.whatsapp?.waLink || data.order.notifications?.whatsapp?.waLink;
+  if (wa) {
+    waLink.href = wa;
+    waLink.classList.remove('hidden');
+  } else {
+    waLink.classList.add('hidden');
+  }
+
+  const pdfLink = document.getElementById('pdf-link');
+  const pdfUrl = data.pdfUrl || data.order?.pdfUrl || `/api/orders/${data.order.invoiceNumber}/pdf`;
+  pdfLink.href = pdfUrl;
+  pdfLink.classList.remove('hidden');
+}
+
+document.getElementById('booking-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const errEl = document.getElementById('form-error');
+  const btn = document.getElementById('submit-btn');
+  errEl.classList.add('hidden');
+
+  const items = getCartItems();
+  if (!items.length) {
+    errEl.textContent = t('selectOneCylinder');
+    errEl.classList.remove('hidden');
+    return;
+  }
+
+  const payload = {
+    customerName: document.getElementById('customerName').value,
+    phone: document.getElementById('phone').value,
+    address: document.getElementById('address').value,
+    deliveryPreference: document.getElementById('deliveryPreference').value,
+    notes: document.getElementById('notes').value,
+    paymentMethod: getPaymentMethod(),
+    couponCode: appliedCoupon || document.getElementById('couponCode').value.trim() || null,
+    items,
+  };
+
+  btn.disabled = true;
+  btn.textContent = t('placingOrder');
+
+  try {
+    const res = await fetch('/api/orders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Order failed');
+    showSuccess(data);
+  } catch (err) {
+    errEl.textContent = err.message;
+    errEl.classList.remove('hidden');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = t('placeOrder');
+  }
+});
+
+document.getElementById('paid-btn').addEventListener('click', async () => {
+  if (!currentInvoice) return;
+  const btn = document.getElementById('paid-btn');
+  btn.disabled = true;
+  try {
+    const res = await fetch(`/api/orders/${currentInvoice}/payment-submitted`, { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    document.getElementById('success-message').textContent = t('paymentSubmitted');
+    btn.classList.add('hidden');
+  } catch (err) {
+    alert(err.message);
+    btn.disabled = false;
+  }
+});
+
+document.getElementById('new-order-btn').addEventListener('click', () => {
+  document.getElementById('booking-form').reset();
+  resetConsumerLookup();
+  currentInvoice = null;
+  clearCoupon();
+  products.forEach((p) => { quantities[p.id] = 0; });
+  if (upiEnabled) document.querySelector('input[value="upi"]').checked = true;
+  renderProducts();
+  updatePreview();
+  document.getElementById('success-section').classList.add('hidden');
+  document.getElementById('booking-section').classList.remove('hidden');
+});
+
+loadProducts();

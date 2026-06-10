@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin | Maa Brahmani Gas Agency</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header>
+    <h1>📋 Admin Panel</h1>
+    <p>Maa Brahmani Gas Agency | Go Gas</p>
+  </header>
+
+  <div class="container">
+    <div class="card" id="login-card">
+      <h2>Admin Login</h2>
+      <div class="form-group">
+        <label for="admin-key">Admin Key</label>
+        <input type="password" id="admin-key" placeholder="Enter admin key" />
+      </div>
+      <button class="btn btn-primary" id="login-btn">Login</button>
+      <p class="error hidden" id="login-error"></p>
+    </div>
+
+    <div id="admin-section" class="hidden">
+      <div class="admin-tabs">
+        <button type="button" class="admin-tab active" data-tab="orders">Orders</button>
+        <button type="button" class="admin-tab" data-tab="customers">Customers</button>
+        <button type="button" class="admin-tab" data-tab="reports">Reports</button>
+        <button type="button" class="admin-tab" data-tab="pricing">Pricing</button>
+        <button type="button" class="admin-tab" data-tab="coupons">Coupons</button>
+      </div>
+
+      <!-- Orders -->
+      <div id="tab-orders" class="tab-panel">
+        <div class="card admin-header">
+          <h2>Orders</h2>
+          <div class="admin-actions">
+            <input type="search" id="orders-search" placeholder="Search invoice, name, phone..." class="admin-search" />
+            <button class="btn btn-sm btn-export" id="export-orders-btn">⬇ Orders CSV</button>
+            <button class="btn btn-primary btn-sm" id="refresh-btn">Refresh</button>
+          </div>
+        </div>
+        <div id="orders-list"></div>
+      </div>
+
+      <!-- Customers -->
+      <div id="tab-customers" class="tab-panel hidden">
+        <div class="card admin-header">
+          <h2>Customers</h2>
+          <div class="admin-actions">
+            <input type="search" id="customers-search" placeholder="Search name, phone, consumer no..." class="admin-search" />
+            <button class="btn btn-sm btn-export" id="export-customers-btn">⬇ Customers CSV</button>
+          </div>
+        </div>
+        <div id="customers-list"></div>
+        <div id="customer-detail" class="card hidden" style="margin-top:1rem;"></div>
+      </div>
+
+      <!-- Reports -->
+      <div id="tab-reports" class="tab-panel hidden">
+        <div class="card admin-header">
+          <h2>Business Reports</h2>
+          <div class="admin-actions">
+            <input type="date" id="report-from" class="admin-date" />
+            <span class="meta">to</span>
+            <input type="date" id="report-to" class="admin-date" />
+            <button class="btn btn-primary btn-sm" id="load-reports-btn">Apply</button>
+            <button class="btn btn-sm btn-export" id="export-accounting-btn">⬇ Accounting CSV</button>
+          </div>
+        </div>
+        <div id="reports-summary"></div>
+      </div>
+
+      <!-- Pricing -->
+      <div id="tab-pricing" class="tab-panel hidden">
+        <div class="card">
+          <h2>Pricing &amp; GST Settings</h2>
+          <form id="pricing-form">
+            <div class="row">
+              <div class="form-group">
+                <label>Delivery Charge (₹)</label>
+                <input type="number" id="deliveryCharge" min="0" step="1" required />
+              </div>
+              <div class="form-group">
+                <label>Delivery GST (%)</label>
+                <input type="number" id="deliveryGstPercent" min="0" max="100" step="0.1" required />
+              </div>
+            </div>
+            <div id="products-pricing"></div>
+            <button type="submit" class="btn btn-primary" style="margin-top:1rem;">Save Pricing</button>
+            <p class="success-msg hidden" id="pricing-saved">Pricing updated successfully!</p>
+          </form>
+        </div>
+      </div>
+
+      <!-- Coupons -->
+      <div id="tab-coupons" class="tab-panel hidden">
+        <div class="card">
+          <h2>Create Coupon</h2>
+          <form id="coupon-form">
+            <div class="row">
+              <div class="form-group">
+                <label>Coupon Code *</label>
+                <input type="text" id="coupon-code" required placeholder="e.g. GOGAS50" style="text-transform:uppercase;" />
+              </div>
+              <div class="form-group">
+                <label>Label</label>
+                <input type="text" id="coupon-label" placeholder="Display name" />
+              </div>
+            </div>
+            <div class="row">
+              <div class="form-group">
+                <label>Type *</label>
+                <select id="coupon-type" required>
+                  <option value="flat">Flat (₹ off)</option>
+                  <option value="percent">Percent (% off)</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Value *</label>
+                <input type="number" id="coupon-value" min="1" step="1" required />
+              </div>
+            </div>
+            <div class="row">
+              <div class="form-group">
+                <label>Min Order (₹)</label>
+                <input type="number" id="coupon-minOrder" min="0" value="0" />
+              </div>
+              <div class="form-group">
+                <label>Max Discount (₹)</label>
+                <input type="number" id="coupon-maxDiscount" min="0" placeholder="Optional" />
+              </div>
+            </div>
+            <div class="row">
+              <div class="form-group">
+                <label>Expires On</label>
+                <input type="date" id="coupon-expiresAt" />
+              </div>
+              <div class="form-group">
+                <label>Usage Limit</label>
+                <input type="number" id="coupon-usageLimit" min="1" placeholder="Unlimited" />
+              </div>
+            </div>
+            <button type="submit" class="btn btn-primary">Create Coupon</button>
+          </form>
+        </div>
+        <div class="card" style="margin-top:1rem;">
+          <h2>Active Coupons</h2>
+          <div id="coupons-list"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer><a href="index.html" style="color:var(--muted);">← Back to booking</a></footer>
+  <script src="admin.js"></script>
+</body>
+</html>

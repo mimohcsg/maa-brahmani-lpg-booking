@@ -1,0 +1,10 @@
+node_modules/
+.env
+*.log
+.DS_Store
+data/booking.db
+data/booking.db-wal
+data/booking.db-shm
+data/invoices/
+data/orders.json
+data/consumers.json

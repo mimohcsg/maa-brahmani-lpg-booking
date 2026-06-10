@@ -1,0 +1,24 @@
+{
+  "name": "maa-brahmani-lpg-booking",
+  "version": "1.0.0",
+  "description": "Online LPG booking for Maa Brahmani Gas Agency | Go Gas",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.10.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "pdfkit": "^0.16.0",
+    "qrcode": "^1.5.4",
+    "sharp": "^0.34.5",
+    "svg-to-pdfkit": "^0.1.8",
+    "uuid": "^11.0.5"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

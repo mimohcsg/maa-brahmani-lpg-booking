@@ -1,0 +1,37 @@
+services:
+  - type: web
+    name: maa-brahmani-lpg-booking
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_PATH
+        value: /opt/render/project/src/data/booking.db
+      - key: UPI_ID
+        sync: false
+      - key: UPI_PAYEE_NAME
+        value: Maa Brahmani Gas Agency
+      - key: BUSINESS_PHONE
+        sync: false
+      - key: ADMIN_KEY
+        generateValue: true
+      - key: GSTIN
+        value: 23AABCY3737E1ZJ
+      - key: BUSINESS_EMAIL
+        value: yoursmeshwork@gmail.com
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_SMS_FROM
+        sync: false
+      - key: TWILIO_WHATSAPP_FROM
+        sync: false
+      - key: MSG91_AUTH_KEY
+        sync: false
+      - key: MSG91_SENDER_ID
+        sync: false

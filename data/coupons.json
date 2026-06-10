@@ -1,0 +1,26 @@
+[
+  {
+    "code": "GOGAS50",
+    "label": "Go Gas ₹50 Off",
+    "type": "flat",
+    "value": 50,
+    "minOrder": 500,
+    "maxDiscount": null,
+    "expiresAt": "2027-12-31",
+    "active": true,
+    "usageLimit": 500,
+    "usedCount": 0
+  },
+  {
+    "code": "WELCOME10",
+    "label": "10% Welcome Discount",
+    "type": "percent",
+    "value": 10,
+    "minOrder": 800,
+    "maxDiscount": 150,
+    "expiresAt": "2027-12-31",
+    "active": true,
+    "usageLimit": null,
+    "usedCount": 0
+  }
+]
