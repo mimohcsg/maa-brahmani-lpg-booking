@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Download Bill | Maa Brahmani Gas Agency</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header>
+    <div class="lang-toggle">
+      <button type="button" id="lang-hi" class="lang-btn active">हिंदी</button>
+      <button type="button" id="lang-en" class="lang-btn">English</button>
+    </div>
+    <img src="assets/gogas-logo.png" alt="Go Gas" class="header-logo" />
+    <h1 data-i18n="downloadBillTitle">बिल डाउनलोड करें</h1>
+    <p data-i18n="downloadBillSubtitle">अपना GST इनवॉइस PDF कभी भी पाएं</p>
+  </header>
+
+  <div class="container">
+    <div class="card">
+      <p class="meta" data-i18n="downloadBillHint">व्हाट्सऐप पर मिला इनवॉइस नंबर और मोबाइल नंबर दर्ज करें</p>
+
+      <form id="download-form">
+        <div class="form-group">
+          <label for="invoiceNumber" data-i18n="invoiceNumberLabel">इनवॉइस नंबर *</label>
+          <input type="text" id="invoiceNumber" required placeholder="MBG-20260610-001" />
+        </div>
+        <div class="form-group">
+          <label for="phone" data-i18n="whatsappNumber">व्हाट्सऐप नंबर *</label>
+          <input type="tel" id="phone" required pattern="[0-9]{10}" maxlength="10" inputmode="numeric" />
+        </div>
+        <button type="submit" class="btn btn-primary" id="lookup-btn" data-i18n="findBill">बिल खोजें</button>
+        <p class="error hidden" id="download-error"></p>
+      </form>
+    </div>
+
+    <div id="bill-result" class="card hidden">
+      <h2 data-i18n="billFound">आपका बिल</h2>
+      <p><strong id="result-invoice"></strong></p>
+      <p id="result-customer"></p>
+      <p class="meta" id="result-date"></p>
+      <p style="font-size:1.1rem;color:var(--go-red);font-weight:700;" id="result-total"></p>
+      <a id="result-pdf" class="btn btn-pdf" target="_blank" rel="noopener" data-i18n="downloadPdf">GST इनवॉइस PDF डाउनलोड करें</a>
+      <p class="meta" style="margin-top:0.75rem;" data-i18n="downloadAgainHint">इस लिंक से आप बाद में भी PDF दोबारा डाउनलोड कर सकते हैं</p>
+    </div>
+  </div>
+
+  <footer>
+    <a href="index.html" style="color: var(--muted);" data-i18n="backToBooking">← बुकिंग पर वापस</a>
+  </footer>
+
+  <script src="i18n.js"></script>
+  <script src="download.js"></script>
+</body>
+</html>

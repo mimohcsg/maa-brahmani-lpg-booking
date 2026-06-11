@@ -7,6 +7,13 @@ const { v4: uuidv4 } = require('uuid');
 const { buildUpiPayment } = require('./services/upi');
 const { notifyCustomer, notifyBusiness } = require('./services/notifications');
 const { generateInvoicePdf, getInvoicePdfPath, invoicePdfExists } = require('./services/pdfInvoice');
+const {
+  getDeliveryChargeOriginal,
+  getCouponDiscountLines,
+  getItemsAmountPlusGst,
+  getLineAmountPlusGst,
+  formatBillProductName,
+} = require('./services/billFormat');
 const { ensureLogoPng, getLogoPublicUrl } = require('./services/branding');
 const {
   getPricing,
@@ -16,6 +23,11 @@ const {
   validateCoupon,
   incrementCouponUsage,
   calculateBill,
+  ensureDefaultCoupons,
+  getAutoCouponCode,
+  resolveOrderCoupon,
+  DEFAULT_COUPON_CODE,
+  AUTO_COUPON_BY_PRODUCT,
 } = require('./services/config');
 const {
   normalizePhone,
@@ -70,8 +82,20 @@ function getPdfPublicUrl(invoiceNumber) {
 }
 
 async function ensureOrderPdf(order) {
-  if (invoicePdfExists(order.invoiceNumber)) return getInvoicePdfPath(order.invoiceNumber);
   return generateInvoicePdf(order, BUSINESS);
+}
+
+function getBillDownloadPageUrl() {
+  const base = (BASE_URL || '').replace(/\/$/, '');
+  return base ? `${base}/download.html` : '/download.html';
+}
+
+function serveInvoicePdf(order, res) {
+  const filePath = getInvoicePdfPath(order.invoiceNumber);
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('Content-Disposition', `inline; filename="Tax-Invoice-${order.invoiceNumber}.pdf"`);
+  fs.createReadStream(filePath).pipe(res);
 }
 
 app.use(cors());
@@ -114,6 +138,12 @@ function sendCsv(res, filename, content) {
   res.send('\uFEFF' + content);
 }
 
+function refreshCustomerBill(order) {
+  if (!order) return order;
+  order.billText = buildBillText(order, BUSINESS);
+  return order;
+}
+
 function buildBillText(order, business) {
   const payLine =
     order.paymentMethod === 'upi'
@@ -135,14 +165,16 @@ function buildBillText(order, business) {
     order.consumerNumber ? `Consumer No: ${order.consumerNumber}` : null,
     '',
     '*Order Details*',
-    ...order.bill.lineItems.map((i) => `${i.name} x ${i.quantity}    ₹${i.total.toFixed(2)}`),
-    `Delivery Charges            ₹${(order.bill.deliveryCharge + order.bill.deliveryGst).toFixed(2)}`,
+    ...order.bill.lineItems.map((i) => {
+      const lineAmount = getLineAmountPlusGst(i);
+      return `${formatBillProductName(i.name)} x ${i.quantity}    ₹${lineAmount.toFixed(2)}`;
+    }),
+    `Delivery Charges            ₹${getDeliveryChargeOriginal(order.bill).toFixed(2)}`,
     '----------------------------',
-    `Subtotal:                   ₹${order.bill.subtotal.toFixed(2)}`,
-    `GST:                        ₹${order.bill.totalGst.toFixed(2)}`,
-    order.bill.discount > 0
-      ? `Discount (${order.bill.coupon?.code}):        -₹${order.bill.discount.toFixed(2)}`
-      : null,
+    `Subtotal:                   ₹${getItemsAmountPlusGst(order.bill).toFixed(2)}`,
+    ...getCouponDiscountLines(order.bill).map(
+      (line) => `${line.label}:`.padEnd(28) + `-₹${line.amount.toFixed(2)}`
+    ),
     `*Total:                     ₹${order.bill.grandTotal.toFixed(2)}*`,
     '',
     payLine,
@@ -150,6 +182,10 @@ function buildBillText(order, business) {
     order.notes ? `Notes: ${order.notes}` : null,
     '',
     `📍 ${BUSINESS.address}`,
+    '',
+    `📄 Download GST Invoice (PDF):`,
+    getPdfPublicUrl(order.invoiceNumber),
+    `🔁 Download again anytime: ${getBillDownloadPageUrl()}`,
     'Thank you for your order! 🙏',
   ].filter(Boolean);
 
@@ -161,7 +197,7 @@ function buildSmsText(order, type = 'order') {
     return `Maa Brahmani Gas: Order ${order.invoiceNumber} received. Pay ₹${order.bill.grandTotal} via UPI: ${BUSINESS.upiId}. Thank you!`;
   }
   if (type === 'confirmed') {
-    return `Maa Brahmani Gas: Order ${order.invoiceNumber} confirmed! Total ₹${order.bill.grandTotal}. Delivery: ${order.deliveryPreference}. Call ${BUSINESS.phone}`;
+    return `Maa Brahmani Gas: Order ${order.invoiceNumber} confirmed! Total ₹${order.bill.grandTotal}. PDF: ${getPdfPublicUrl(order.invoiceNumber)}`;
   }
   return `Maa Brahmani Gas: Order ${order.invoiceNumber} placed. Total ₹${order.bill.grandTotal}. We will contact you soon.`;
 }
@@ -206,6 +242,8 @@ app.get('/api/products', (_req, res) => {
     products: pricing.products,
     deliveryCharge: pricing.deliveryCharge,
     deliveryGstPercent: pricing.deliveryGstPercent,
+    defaultCoupon: DEFAULT_COUPON_CODE,
+    autoCouponByProduct: AUTO_COUPON_BY_PRODUCT,
   });
 });
 
@@ -216,11 +254,17 @@ app.post('/api/coupons/validate', (req, res) => {
     if (!items?.length) return res.status(400).json({ error: 'Cart is empty' });
 
     const pricing = getPricing();
-    const bill = calculateBill(items, pricing);
-    const result = validateCoupon(code, bill.preDiscountTotal);
+    const bill = calculateBill(items, pricing, code.trim());
 
-    if (!result.valid) return res.status(400).json(result);
-    res.json({ ...result, newTotal: bill.preDiscountTotal - result.discount });
+    res.json({
+      valid: true,
+      coupon: bill.coupon,
+      discount: bill.discount,
+      freeDelivery: bill.freeDelivery,
+      deliveryCharge: bill.deliveryCharge,
+      deliverySavings: bill.deliverySavings,
+      newTotal: bill.grandTotal,
+    });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -241,13 +285,30 @@ app.put('/api/admin/pricing', (req, res) => {
     if (deliveryGstPercent != null) current.deliveryGstPercent = Math.max(0, Number(deliveryGstPercent));
 
     if (Array.isArray(products)) {
-      products.forEach((incoming) => {
-        const idx = current.products.findIndex((p) => p.id === incoming.id);
-        if (idx === -1) return;
-        if (incoming.price != null) current.products[idx].price = Math.max(0, Number(incoming.price));
-        if (incoming.gstPercent != null) current.products[idx].gstPercent = Math.max(0, Number(incoming.gstPercent));
-        if (incoming.name?.trim()) current.products[idx].name = incoming.name.trim();
+      const validated = products.map((incoming) => {
+        const id = String(incoming.id || '').trim().toLowerCase().replace(/\s+/g, '-');
+        const name = String(incoming.name || '').trim();
+        if (!id || !/^[a-z0-9][a-z0-9-]*$/.test(id)) {
+          throw new Error('Each product needs a valid ID (lowercase letters, numbers, hyphens)');
+        }
+        if (!name) throw new Error('Each product needs a name');
+        if (incoming.price == null || Number(incoming.price) < 0) {
+          throw new Error(`Invalid price for ${name}`);
+        }
+        return {
+          id,
+          name,
+          price: Math.max(0, Number(incoming.price)),
+          gstPercent: Math.max(0, Number(incoming.gstPercent) || 0),
+        };
       });
+
+      const ids = validated.map((p) => p.id);
+      if (new Set(ids).size !== ids.length) {
+        throw new Error('Duplicate product IDs are not allowed');
+      }
+
+      current.products = validated;
     }
 
     savePricing(current);
@@ -267,8 +328,12 @@ app.post('/api/admin/coupons', (req, res) => {
   try {
     const { code, label, type, value, minOrder, maxDiscount, expiresAt, usageLimit, active } = req.body;
     if (!code?.trim()) return res.status(400).json({ error: 'Coupon code is required' });
-    if (!['flat', 'percent'].includes(type)) return res.status(400).json({ error: 'Type must be flat or percent' });
-    if (!value || value <= 0) return res.status(400).json({ error: 'Value must be greater than 0' });
+    if (!['flat', 'percent', 'free_delivery'].includes(type)) {
+      return res.status(400).json({ error: 'Type must be flat, percent, or free_delivery' });
+    }
+    if (type !== 'free_delivery' && (!value || value <= 0)) {
+      return res.status(400).json({ error: 'Value must be greater than 0' });
+    }
 
     const normalized = code.trim().toUpperCase();
     const coupons = getCoupons();
@@ -280,7 +345,7 @@ app.post('/api/admin/coupons', (req, res) => {
       code: normalized,
       label: label?.trim() || normalized,
       type,
-      value: Number(value),
+      value: type === 'free_delivery' ? 0 : Number(value),
       minOrder: minOrder ? Number(minOrder) : 0,
       maxDiscount: maxDiscount ? Number(maxDiscount) : null,
       expiresAt: expiresAt || null,
@@ -371,23 +436,56 @@ app.get('/api/orders/:invoiceNumber/pdf', async (req, res) => {
     const order = findOrder(req.params.invoiceNumber);
     if (!order) return res.status(404).json({ error: 'Order not found' });
 
+    refreshCustomerBill(order);
     await ensureOrderPdf(order);
+    updateOrder(order.invoiceNumber, { billText: order.billText });
     const filePath = getInvoicePdfPath(order.invoiceNumber);
     if (!fs.existsSync(filePath)) {
       return res.status(500).json({ error: 'PDF file not found' });
     }
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `inline; filename="Tax-Invoice-${order.invoiceNumber}.pdf"`);
-    fs.createReadStream(filePath).pipe(res);
+    serveInvoicePdf(order, res);
   } catch (err) {
     console.error('PDF error:', err);
     if (!res.headersSent) res.status(500).json({ error: 'Failed to generate PDF' });
   }
 });
 
+app.post('/api/bills/lookup', async (req, res) => {
+  try {
+    const invoiceNumber = req.body.invoiceNumber?.trim();
+    const phone = normalizePhone(req.body.phone);
+
+    if (!invoiceNumber) return res.status(400).json({ error: 'Invoice number is required' });
+    if (phone.length !== 10) return res.status(400).json({ error: 'Enter a valid 10-digit mobile number' });
+
+    const order = findOrder(invoiceNumber);
+    if (!order) return res.status(404).json({ error: 'No order found for this invoice number' });
+    if (normalizePhone(order.phone) !== phone) {
+      return res.status(404).json({ error: 'Invoice and mobile number do not match' });
+    }
+
+    await ensureOrderPdf(order);
+
+    res.json({
+      success: true,
+      invoiceNumber: order.invoiceNumber,
+      customerName: order.customerName,
+      createdAt: order.createdAt,
+      grandTotal: order.bill?.grandTotal,
+      pdfUrl: getPdfPublicUrl(order.invoiceNumber),
+      downloadPageUrl: getBillDownloadPageUrl(),
+    });
+  } catch (err) {
+    console.error('Bill lookup error:', err);
+    res.status(500).json({ error: 'Failed to lookup bill' });
+  }
+});
+
 app.get('/api/orders/:invoiceNumber', (req, res) => {
   const order = findOrder(req.params.invoiceNumber);
   if (!order) return res.status(404).json({ error: 'Order not found' });
+  refreshCustomerBill(order);
+  updateOrder(order.invoiceNumber, { billText: order.billText });
   res.json({ ...order, pdfUrl: getPdfPublicUrl(order.invoiceNumber) });
 });
 
@@ -402,6 +500,7 @@ app.post('/api/orders', async (req, res) => {
       notes,
       paymentMethod,
       couponCode,
+      couponSkipped,
     } = req.body;
 
     if (!customerName?.trim()) return res.status(400).json({ error: 'Customer name is required' });
@@ -425,7 +524,8 @@ app.post('/api/orders', async (req, res) => {
     }
 
     const pricing = getPricing();
-    const bill = calculateBill(items, pricing, couponCode?.trim() || null);
+    const effectiveCoupon = resolveOrderCoupon(items, couponCode, Boolean(couponSkipped));
+    const bill = calculateBill(items, pricing, effectiveCoupon);
     const invoiceNumber = generateInvoiceNumber();
 
     const order = {
@@ -445,7 +545,7 @@ app.post('/api/orders', async (req, res) => {
       createdAt: new Date().toISOString(),
     };
 
-    order.billText = buildBillText(order, BUSINESS);
+    refreshCustomerBill(order);
 
     if (bill.coupon) incrementCouponUsage(bill.coupon.code);
 
@@ -466,6 +566,8 @@ app.post('/api/orders', async (req, res) => {
 
     saveOrder(order);
 
+    refreshCustomerBill(order);
+
     let notifications = null;
     if (method === 'cod') {
       notifications = await notifyCustomer(order, order.billText, {
@@ -473,18 +575,25 @@ app.post('/api/orders', async (req, res) => {
         pdfUrl,
         logoUrl: getLogoPublicUrl(BASE_URL),
       });
-      updateOrder(invoiceNumber, { notifications, pdfUrl });
+      updateOrder(invoiceNumber, { notifications, pdfUrl, billText: order.billText });
     } else {
       const sms = await notifyCustomer(order, order.billText, {
         smsText: buildSmsText(order, 'payment'),
         pdfUrl,
         logoUrl: getLogoPublicUrl(BASE_URL),
       });
-      updateOrder(invoiceNumber, { notifications: { sms: sms.sms, whatsapp: sms.whatsapp }, pdfUrl });
+      updateOrder(invoiceNumber, {
+        notifications: { sms: sms.sms, whatsapp: sms.whatsapp },
+        pdfUrl,
+        billText: order.billText,
+      });
       await notifyBusiness(
         `New LPG order ${invoiceNumber}: ${order.customerName}, ₹${bill.grandTotal}. UPI payment pending.`
       );
     }
+
+    refreshCustomerBill(order);
+    updateOrder(invoiceNumber, { billText: order.billText });
 
     res.status(201).json({
       success: true,
@@ -544,7 +653,7 @@ app.patch('/api/orders/:invoiceNumber/confirm-payment', async (req, res) => {
       paymentStatus: 'paid',
       status: 'confirmed',
     });
-    updated.billText = buildBillText(updated, BUSINESS);
+    refreshCustomerBill(updated);
     await ensureOrderPdf(updated);
     const pdfUrl = order.pdfUrl || getPdfPublicUrl(order.invoiceNumber);
 
@@ -564,6 +673,7 @@ app.patch('/api/orders/:invoiceNumber/confirm-payment', async (req, res) => {
 app.listen(PORT, async () => {
   getPricing();
   getCoupons();
+  ensureDefaultCoupons();
   await ensureLogoPng();
   console.log(`\n🔥 ${BUSINESS.name}`);
   console.log(`   Booking app: http://localhost:${PORT}`);

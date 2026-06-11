@@ -22,5 +22,29 @@
     "active": true,
     "usageLimit": null,
     "usedCount": 0
+  },
+  {
+    "code": "FREEDELIVERY",
+    "label": "Free Delivery",
+    "type": "free_delivery",
+    "value": 0,
+    "minOrder": 0,
+    "maxDiscount": null,
+    "expiresAt": "2027-12-31",
+    "active": true,
+    "usageLimit": null,
+    "usedCount": 2
+  },
+  {
+    "code": "NOTOBLACK",
+    "label": "Say No To Black Cylender",
+    "type": "flat",
+    "value": 150,
+    "minOrder": 150,
+    "maxDiscount": 150,
+    "expiresAt": "2026-06-30",
+    "active": true,
+    "usageLimit": null,
+    "usedCount": 6
   }
 ]

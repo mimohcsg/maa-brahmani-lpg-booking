@@ -2,6 +2,13 @@ const PDFDocument = require('pdfkit');
 const fs = require('fs');
 const path = require('path');
 const { ensureLogoPng, getLogoPngPath } = require('./branding');
+const {
+  getDeliveryChargeOriginal,
+  getCouponDiscountLines,
+  getItemsAmountPlusGst,
+  getLineAmountPlusGst,
+  formatBillProductName,
+} = require('./billFormat');
 
 const INVOICES_DIR = path.join(__dirname, '..', 'data', 'invoices');
 
@@ -42,10 +49,6 @@ async function generateInvoicePdf(order, business) {
   const filePath = getInvoicePdfPath(order.invoiceNumber);
   const bill = order.bill;
   const billDate = fmtDate(order.createdAt);
-  const halfGst = bill.totalGst / 2;
-  const gstRate = bill.lineItems[0]?.gstPercent || 5;
-  const halfRate = gstRate / 2;
-
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ margin: 40, size: 'A4' });
     const stream = fs.createWriteStream(filePath);
@@ -110,13 +113,11 @@ async function generateInvoicePdf(order, business) {
     // Table header
     const cols = [
       { label: '#', x: 40, w: 20 },
-      { label: 'Description', x: 62, w: 130 },
-      { label: 'SAC', x: 194, w: 52 },
-      { label: 'Qty', x: 248, w: 28 },
-      { label: 'Unit', x: 278, w: 28 },
-      { label: 'Rate', x: 308, w: 45 },
-      { label: 'GST%', x: 355, w: 32 },
-      { label: 'Amount', x: 390, w: 65 },
+      { label: 'Description', x: 62, w: 170 },
+      { label: 'SAC', x: 234, w: 52 },
+      { label: 'Qty', x: 288, w: 28 },
+      { label: 'Unit', x: 318, w: 28 },
+      { label: 'Amount', x: 348, w: 107 },
     ];
 
     doc.rect(40, y, pageWidth, 18).fill('#f5f5f5');
@@ -131,42 +132,46 @@ async function generateInvoicePdf(order, business) {
       if (y > 680) { doc.addPage(); y = 40; }
       doc.fillColor('#000');
       doc.text(String(rowNum++), cols[0].x + 2, y + 4, { width: cols[0].w });
-      doc.text(item.name, cols[1].x + 2, y + 4, { width: cols[1].w });
+      doc.text(formatBillProductName(item.name), cols[1].x + 2, y + 4, { width: cols[1].w });
       doc.text(SAC_CODES[item.productId] || '73110010', cols[2].x + 2, y + 4, { width: cols[2].w });
       doc.text(String(item.quantity), cols[3].x + 2, y + 4, { width: cols[3].w });
       doc.text('Kg', cols[4].x + 2, y + 4, { width: cols[4].w });
-      doc.text(fmtMoney(item.unitPrice), cols[5].x + 2, y + 4, { width: cols[5].w });
-      doc.text(String(item.gstPercent), cols[6].x + 2, y + 4, { width: cols[6].w });
-      doc.text(fmtMoney(item.subtotal), cols[7].x + 2, y + 4, { width: cols[7].w, align: 'right' });
+      doc.text(fmtMoney(getLineAmountPlusGst(item)), cols[5].x + 2, y + 4, {
+        width: cols[5].w,
+        align: 'right',
+      });
       doc.moveTo(40, y + rowH).lineTo(40 + pageWidth, y + rowH).strokeColor('#ddd').stroke();
       y += rowH;
     });
 
-    // Delivery / transport row
-    const deliveryTotal = bill.deliveryCharge + bill.deliveryGst;
+    // Delivery row (flat charge, no GST on delivery)
+    const deliveryAmount = getDeliveryChargeOriginal(bill);
     doc.text(String(rowNum), cols[0].x + 2, y + 4);
     doc.text('Transport / Delivery Charge', cols[1].x + 2, y + 4, { width: cols[1].w });
     doc.text('-', cols[2].x + 2, y + 4);
     doc.text('1', cols[3].x + 2, y + 4);
     doc.text('-', cols[4].x + 2, y + 4);
-    doc.text(fmtMoney(bill.deliveryCharge), cols[5].x + 2, y + 4);
-    doc.text(String(bill.deliveryGstPercent || 5), cols[6].x + 2, y + 4);
-    doc.text(fmtMoney(deliveryTotal), cols[7].x + 2, y + 4, { width: cols[7].w, align: 'right' });
+    doc.text(fmtMoney(deliveryAmount), cols[5].x + 2, y + 4, { width: cols[5].w, align: 'right' });
     y += 36;
 
-    // Bank details
-    if (business.bankName) {
-      doc.fontSize(9).font('Helvetica-Bold').fillColor('#000').text('Fund transfer information', 40, y);
-      y += 14;
-      doc.fontSize(8).font('Helvetica');
-      doc.text(`Bank name: ${business.bankName}`, 40, y);
+    // UPI payment details
+    doc.fontSize(9).font('Helvetica-Bold').fillColor('#000').text('UPI Payment Details', 40, y);
+    y += 14;
+    doc.fontSize(8).font('Helvetica');
+    if (business.upiId) {
+      doc.text(`UPI ID: ${business.upiId}`, 40, y);
       y += 12;
-      if (business.bankAccountHolder) doc.text(`Account holder: ${business.bankAccountHolder}`, 40, y), y += 12;
-      if (business.bankAccountNumber) doc.text(`Account number: ${business.bankAccountNumber}`, 40, y), y += 12;
-      if (business.bankIfsc) doc.text(`IFSC code: ${business.bankIfsc}`, 40, y), y += 12;
-      if (business.upiId) doc.text(`UPI: ${business.upiId}`, 40, y), y += 12;
-      y += 8;
     }
+    if (business.upiName) {
+      doc.text(`Payee name: ${business.upiName}`, 40, y);
+      y += 12;
+    }
+    doc.text(`Amount payable: Rs. ${fmtMoney(bill.grandTotal)}`, 40, y);
+    y += 12;
+    doc.text(`Payment reference: ${order.invoiceNumber}`, 40, y);
+    y += 12;
+    doc.text('Pay using Google Pay, PhonePe, Paytm or any UPI app.', 40, y, { width: pageWidth });
+    y += 20;
 
     doc.fontSize(9).font('Helvetica-Bold').text('Terms & Conditions', 40, y);
     y += 12;
@@ -175,25 +180,22 @@ async function generateInvoicePdf(order, business) {
 
     // Totals (right aligned box)
     const totalsX = 340;
-    const subBeforeGst = bill.subtotal + bill.deliveryCharge;
+    const deliveryAmountTotal = getDeliveryChargeOriginal(bill);
     doc.fontSize(9).font('Helvetica');
-    doc.text('Sub Total', totalsX, y);
-    doc.text(`Rs. ${fmtMoney(subBeforeGst)}`, 460, y, { width: 95, align: 'right' });
+    doc.text('Sub Total (incl. GST)', totalsX, y);
+    doc.text(`Rs. ${fmtMoney(getItemsAmountPlusGst(bill))}`, 460, y, { width: 95, align: 'right' });
+    y += 14;
+    doc.text('Delivery Charges', totalsX, y);
+    doc.text(`Rs. ${fmtMoney(deliveryAmountTotal)}`, 460, y, { width: 95, align: 'right' });
     y += 14;
 
-    if (bill.discount > 0) {
-      doc.fillColor('#2e7d32').text(`Discount (${bill.coupon?.code || ''})`, totalsX, y);
-      doc.text(`- Rs. ${fmtMoney(bill.discount)}`, 460, y, { width: 95, align: 'right' });
+    getCouponDiscountLines(bill).forEach((line) => {
+      doc.fillColor('#2e7d32').text(line.label, totalsX, y);
+      doc.text(`- Rs. ${fmtMoney(line.amount)}`, 460, y, { width: 95, align: 'right' });
       doc.fillColor('#000');
       y += 14;
-    }
+    });
 
-    doc.text(`CGST @ ${halfRate}%`, totalsX, y);
-    doc.text(`Rs. ${fmtMoney(halfGst)}`, 460, y, { width: 95, align: 'right' });
-    y += 14;
-    doc.text(`SGST @ ${halfRate}%`, totalsX, y);
-    doc.text(`Rs. ${fmtMoney(halfGst)}`, 460, y, { width: 95, align: 'right' });
-    y += 14;
     doc.text('Total', totalsX, y);
     doc.text(`Rs. ${fmtMoney(bill.grandTotal)}`, 460, y, { width: 95, align: 'right' });
     y += 18;

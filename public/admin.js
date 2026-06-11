@@ -114,9 +114,6 @@ async function loadOrders() {
   `).join('');
 }
 
-  `).join('');
-}
-
 async function loadCustomers() {
   const search = document.getElementById('customers-search')?.value.trim() || '';
   const params = search ? `?search=${encodeURIComponent(search)}` : '';
@@ -240,53 +237,218 @@ async function loadReports() {
   `;
 }
 
+function escHtml(value) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function calcProductTotals(price, gstPercent) {
+  const p = Math.max(0, Number(price) || 0);
+  const g = Math.max(0, Number(gstPercent) || 0);
+  const gstAmount = Math.round((p * g) / 100 * 100) / 100;
+  const total = Math.round((p + gstAmount) * 100) / 100;
+  return { gstAmount, total };
+}
+
+function updateProductTotalDisplay(row) {
+  const price = row.querySelector('[data-field="price"]')?.value;
+  const gst = row.querySelector('[data-field="gstPercent"]')?.value;
+  const { gstAmount, total } = calcProductTotals(price, gst);
+  const gstEl = row.querySelector('[data-total="gst"]');
+  const totalEl = row.querySelector('[data-total="total"]');
+  if (gstEl) gstEl.textContent = fmtMoney(gstAmount);
+  if (totalEl) totalEl.textContent = fmtMoney(total);
+}
+
+function bindProductRowEvents(row) {
+  row.querySelectorAll('[data-field="price"], [data-field="gstPercent"]').forEach((input) => {
+    input.addEventListener('input', () => updateProductTotalDisplay(row));
+  });
+  row.querySelector('[data-action="remove-product"]')?.addEventListener('click', () => {
+    if (!confirm('Remove this product from the catalog?')) return;
+    row.remove();
+  });
+}
+
+function renderProductRow(p) {
+  const { gstAmount, total } = calcProductTotals(p.price, p.gstPercent);
+  const row = document.createElement('div');
+  row.className = 'pricing-product card';
+  row.style.cssText = 'padding:1rem;margin-top:0.75rem;background:#fafafa;';
+  row.dataset.productRow = p.id;
+  row.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:start;gap:1rem;flex-wrap:wrap;">
+      <strong>Product</strong>
+      <button type="button" class="btn btn-sm btn-danger" data-action="remove-product">Remove</button>
+    </div>
+    <div class="row" style="margin-top:0.5rem;">
+      <div class="form-group">
+        <label>Product ID</label>
+        <input type="text" data-field="id" value="${escHtml(p.id)}" required />
+      </div>
+      <div class="form-group">
+        <label>Product Name</label>
+        <input type="text" data-field="name" value="${escHtml(p.name)}" required />
+      </div>
+    </div>
+    <div class="row">
+      <div class="form-group">
+        <label>Price (₹)</label>
+        <input type="number" data-field="price" value="${p.price}" min="0" step="1" required />
+      </div>
+      <div class="form-group">
+        <label>GST (%)</label>
+        <input type="number" data-field="gstPercent" value="${p.gstPercent}" min="0" max="100" step="0.1" required />
+      </div>
+      <div class="form-group">
+        <label>GST Amount</label>
+        <div class="pricing-total" data-total="gst">${fmtMoney(gstAmount)}</div>
+      </div>
+      <div class="form-group">
+        <label>Total (Price + GST)</label>
+        <div class="pricing-total pricing-total-main" data-total="total">${fmtMoney(total)}</div>
+      </div>
+    </div>
+  `;
+  bindProductRowEvents(row);
+  return row;
+}
+
+function normalizeProductId(value) {
+  return String(value || '').trim().toLowerCase().replace(/\s+/g, '-');
+}
+
+function isValidProductId(id) {
+  return /^[a-z0-9][a-z0-9-]*$/.test(id);
+}
+
+function collectProductsFromForm() {
+  const products = [];
+  document.querySelectorAll('[data-product-row]').forEach((row) => {
+    products.push({
+      id: normalizeProductId(row.querySelector('[data-field="id"]').value),
+      name: row.querySelector('[data-field="name"]').value.trim(),
+      price: Number(row.querySelector('[data-field="price"]').value),
+      gstPercent: Number(row.querySelector('[data-field="gstPercent"]').value),
+    });
+  });
+  return products;
+}
+
+function validateProducts(products) {
+  if (!products.length) return 'Add at least one product';
+  const ids = new Set();
+  for (const p of products) {
+    if (!p.id || !isValidProductId(p.id)) {
+      return `Invalid product ID "${p.id || ''}". Use lowercase letters, numbers, and hyphens only.`;
+    }
+    if (!p.name) return `Product "${p.id}" needs a name`;
+    if (Number.isNaN(p.price) || p.price < 0) return `Invalid price for "${p.name}"`;
+    if (Number.isNaN(p.gstPercent) || p.gstPercent < 0) return `Invalid GST for "${p.name}"`;
+    if (ids.has(p.id)) return `Duplicate product ID: ${p.id}`;
+    ids.add(p.id);
+  }
+  return null;
+}
+
+function showPricingError(message) {
+  const el = document.getElementById('pricing-error');
+  if (!el) return;
+  if (!message) {
+    el.textContent = '';
+    el.classList.add('hidden');
+    return;
+  }
+  el.textContent = message;
+  el.classList.remove('hidden');
+}
+
+function updateNewProductPreview() {
+  const price = document.getElementById('new-product-price')?.value;
+  const gst = document.getElementById('new-product-gst')?.value;
+  const { total } = calcProductTotals(price, gst);
+  const el = document.getElementById('new-product-total');
+  if (el) el.textContent = `Total (Price + GST): ${fmtMoney(total)}`;
+}
+
 async function loadPricing() {
   const res = await fetch('/api/admin/pricing', { headers: { 'x-admin-key': adminKey } });
   if (handleAuthError(res)) return;
   const pricing = await res.json();
   document.getElementById('deliveryCharge').value = pricing.deliveryCharge;
   document.getElementById('deliveryGstPercent').value = pricing.deliveryGstPercent;
-  document.getElementById('products-pricing').innerHTML = pricing.products.map((p) => `
-    <div class="pricing-product card" style="padding:1rem;margin-top:0.75rem;background:#fafafa;">
-      <strong>${p.name}</strong> <span class="meta">(${p.id})</span>
-      <div class="row" style="margin-top:0.5rem;">
-        <div class="form-group">
-          <label>Price (₹)</label>
-          <input type="number" data-product-id="${p.id}" data-field="price" value="${p.price}" min="0" step="1" required />
-        </div>
-        <div class="form-group">
-          <label>GST (%)</label>
-          <input type="number" data-product-id="${p.id}" data-field="gstPercent" value="${p.gstPercent}" min="0" max="100" step="0.1" required />
-        </div>
-      </div>
-    </div>
-  `).join('');
+  const container = document.getElementById('products-pricing');
+  container.innerHTML = '';
+  pricing.products.forEach((p) => container.appendChild(renderProductRow(p)));
 }
+
+document.getElementById('add-product-btn')?.addEventListener('click', () => {
+  const id = normalizeProductId(document.getElementById('new-product-id').value);
+  const name = document.getElementById('new-product-name').value.trim();
+  const price = Number(document.getElementById('new-product-price').value);
+  const gstPercent = Number(document.getElementById('new-product-gst').value) || 0;
+
+  if (!id || !isValidProductId(id)) {
+    return alert('Enter a valid product ID (lowercase letters, numbers, hyphens)');
+  }
+  if (!name) return alert('Product name is required');
+  if (Number.isNaN(price) || price < 0) return alert('Enter a valid price');
+
+  const existing = collectProductsFromForm();
+  if (existing.some((p) => p.id === id)) return alert('A product with this ID already exists');
+
+  document.getElementById('products-pricing').appendChild(
+    renderProductRow({ id, name, price, gstPercent })
+  );
+
+  document.getElementById('new-product-id').value = '';
+  document.getElementById('new-product-name').value = '';
+  document.getElementById('new-product-price').value = '';
+  document.getElementById('new-product-gst').value = '5';
+  updateNewProductPreview();
+});
+
+document.getElementById('new-product-price')?.addEventListener('input', updateNewProductPreview);
+document.getElementById('new-product-gst')?.addEventListener('input', updateNewProductPreview);
 
 document.getElementById('pricing-form').addEventListener('submit', async (e) => {
   e.preventDefault();
-  const products = [];
-  document.querySelectorAll('[data-product-id][data-field="price"]').forEach((el) => {
-    const id = el.getAttribute('data-product-id');
-    const price = Number(el.value);
-    const gstEl = document.querySelector(`[data-product-id="${id}"][data-field="gstPercent"]`);
-    products.push({ id, price, gstPercent: Number(gstEl.value) });
-  });
+  showPricingError('');
+  document.getElementById('pricing-saved')?.classList.add('hidden');
 
-  const res = await fetch('/api/admin/pricing', {
-    method: 'PUT',
-    headers: adminHeaders(),
-    body: JSON.stringify({
-      deliveryCharge: Number(document.getElementById('deliveryCharge').value),
-      deliveryGstPercent: Number(document.getElementById('deliveryGstPercent').value),
-      products,
-    }),
-  });
-  const data = await res.json();
-  if (!res.ok) return alert(data.error || 'Failed to save');
-  const msg = document.getElementById('pricing-saved');
-  msg.classList.remove('hidden');
-  setTimeout(() => msg.classList.add('hidden'), 3000);
+  const products = collectProductsFromForm();
+  const validationError = validateProducts(products);
+  if (validationError) {
+    showPricingError(validationError);
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/admin/pricing', {
+      method: 'PUT',
+      headers: adminHeaders(),
+      body: JSON.stringify({
+        deliveryCharge: Number(document.getElementById('deliveryCharge').value),
+        deliveryGstPercent: Number(document.getElementById('deliveryGstPercent').value),
+        products,
+      }),
+    });
+    if (handleAuthError(res)) return;
+    const data = await res.json();
+    if (!res.ok) {
+      showPricingError(data.error || 'Failed to save pricing');
+      return;
+    }
+    await loadPricing();
+    const msg = document.getElementById('pricing-saved');
+    msg.classList.remove('hidden');
+    setTimeout(() => msg.classList.add('hidden'), 3000);
+  } catch {
+    showPricingError('Unable to save. Check that the server is running.');
+  }
 });
 
 async function loadCoupons() {
@@ -303,7 +465,7 @@ async function loadCoupons() {
       <div>
         <strong>${c.code}</strong>
         <span class="status ${c.active ? 'status-confirmed' : ''}">${c.active ? 'Active' : 'Inactive'}</span>
-        <div class="meta">${c.label} · ${c.type === 'percent' ? c.value + '%' : '₹' + c.value} off</div>
+        <div class="meta">${c.label} · ${c.type === 'free_delivery' ? 'Free delivery' : c.type === 'percent' ? c.value + '%' : '₹' + c.value} off</div>
         <div class="meta">Used: ${c.usedCount || 0}${c.usageLimit ? ' / ' + c.usageLimit : ''} · Min ₹${c.minOrder || 0}</div>
       </div>
       <div style="display:flex;gap:0.5rem;">
@@ -335,7 +497,9 @@ document.getElementById('coupon-form').addEventListener('submit', async (e) => {
     code: document.getElementById('coupon-code').value,
     label: document.getElementById('coupon-label').value,
     type: document.getElementById('coupon-type').value,
-    value: Number(document.getElementById('coupon-value').value),
+    value: document.getElementById('coupon-type').value === 'free_delivery'
+      ? 0
+      : Number(document.getElementById('coupon-value').value),
     minOrder: Number(document.getElementById('coupon-minOrder').value) || 0,
     maxDiscount: document.getElementById('coupon-maxDiscount').value
       ? Number(document.getElementById('coupon-maxDiscount').value) : null,
@@ -376,8 +540,20 @@ function showAdmin() {
   loadOrders();
 }
 
-document.getElementById('login-btn').addEventListener('click', () => {
-  adminKey = document.getElementById('admin-key').value;
+document.getElementById('login-btn').addEventListener('click', async () => {
+  adminKey = document.getElementById('admin-key').value.trim();
+  const res = await fetch('/api/orders', { headers: { 'x-admin-key': adminKey } });
+  if (res.status === 401) {
+    sessionStorage.removeItem('adminKey');
+    document.getElementById('login-error').textContent = 'Invalid admin key';
+    document.getElementById('login-error').classList.remove('hidden');
+    return;
+  }
+  if (!res.ok) {
+    document.getElementById('login-error').textContent = 'Unable to connect. Is the server running?';
+    document.getElementById('login-error').classList.remove('hidden');
+    return;
+  }
   sessionStorage.setItem('adminKey', adminKey);
   showAdmin();
 });

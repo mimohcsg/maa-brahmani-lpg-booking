@@ -357,6 +357,22 @@ footer { text-align: center; padding: 1rem; color: var(--muted); font-size: 0.8r
   padding: 0.45rem 1rem !important;
   font-size: 0.85rem !important;
 }
+.pricing-total {
+  padding: 0.65rem 0.75rem;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-weight: 600;
+  min-height: 2.5rem;
+  display: flex;
+  align-items: center;
+}
+
+.pricing-total-main {
+  color: var(--go-red);
+  font-size: 1.05rem;
+}
+
 .btn-danger {
   background: #c62828 !important;
   color: white;

@@ -5,10 +5,32 @@ let upiEnabled = false;
 let currentInvoice = null;
 let appliedCoupon = null;
 let appliedDiscount = 0;
+let appliedFreeDelivery = false;
+let appliedDeliverySavings = 0;
+let appliedTotal = null;
+let couponManuallyRemoved = false;
 let consumerLookupTimer = null;
+let defaultCoupon = 'FreeDelivery';
+let autoCouponByProduct = { 'cylinder-19': 'NOTOBLACK' };
 const quantities = {};
 
+function getAutoCouponForCart(items) {
+  if (!items?.length) return defaultCoupon;
+  for (const [productId, couponCode] of Object.entries(autoCouponByProduct)) {
+    if (items.some((item) => item.productId === productId && item.quantity > 0)) {
+      return couponCode;
+    }
+  }
+  return defaultCoupon;
+}
+
 const fmt = (n) => `₹${Number(n).toFixed(2)}`;
+
+function productPriceInclGst(product) {
+  const gst = (product.price * product.gstPercent) / 100;
+  return Math.round((product.price + gst) * 100) / 100;
+}
+
 
 document.getElementById('lang-hi').addEventListener('click', () => setLang('hi'));
 document.getElementById('lang-en').addEventListener('click', () => setLang('en'));
@@ -75,6 +97,8 @@ function onLangChange() {
   const btn = document.getElementById('submit-btn');
   if (btn && !btn.disabled) btn.textContent = t('placeOrder');
   document.getElementById('apply-coupon-btn').textContent = t('applyCoupon');
+  document.getElementById('remove-coupon-btn').textContent = t('removeCoupon');
+  updateCouponButtons();
 }
 
 function getCartItems() {
@@ -90,6 +114,8 @@ async function loadProducts() {
   deliveryCharge = data.deliveryCharge;
   deliveryGstPercent = data.deliveryGstPercent ?? 5;
   upiEnabled = data.business?.upiEnabled;
+  if (data.defaultCoupon) defaultCoupon = data.defaultCoupon;
+  if (data.autoCouponByProduct) autoCouponByProduct = data.autoCouponByProduct;
   products.forEach((p) => { quantities[p.id] = 0; });
 
   if (!upiEnabled) {
@@ -99,6 +125,7 @@ async function loadProducts() {
 
   applyTranslations();
   renderProducts();
+  resetDefaultCoupon();
   updatePreview();
   initVoiceButtons();
 }
@@ -109,7 +136,7 @@ function renderProducts() {
     <div class="product-row">
       <div class="product-info">
         <div class="name">${productName(p.id, p.name)}</div>
-        <div class="price">${fmt(p.price)} ${t('gstSuffix')}</div>
+        <div class="price">${fmt(productPriceInclGst(p))}</div>
       </div>
       <div class="qty-control">
         <button type="button" onclick="changeQty('${p.id}', -1)">−</button>
@@ -120,11 +147,10 @@ function renderProducts() {
   `).join('');
 }
 
-function changeQty(id, delta) {
+async function changeQty(id, delta) {
   quantities[id] = Math.max(0, (quantities[id] || 0) + delta);
   document.getElementById(`qty-${id}`).textContent = quantities[id];
-  clearCoupon();
-  updatePreview();
+  await refreshActiveCoupon();
 }
 
 function calcPreview() {
@@ -138,33 +164,125 @@ function calcPreview() {
       gst += (line * p.gstPercent) / 100;
     }
   });
-  const deliveryGst = (deliveryCharge * deliveryGstPercent) / 100;
-  const preDiscount = subtotal + gst + deliveryCharge + deliveryGst;
-  const total = Math.max(0, preDiscount - appliedDiscount);
-  return { subtotal, gst, delivery: deliveryCharge + deliveryGst, preDiscount, total };
+  const delivery = appliedFreeDelivery ? 0 : deliveryCharge;
+  const total = appliedTotal != null
+    ? appliedTotal
+    : Math.max(0, subtotal + gst + delivery - appliedDiscount);
+  return { subtotal, gst, delivery, total };
 }
 
 function updatePreview() {
   const { subtotal, gst, delivery, total } = calcPreview();
-  document.getElementById('preview-subtotal').textContent = fmt(subtotal);
-  document.getElementById('preview-gst').textContent = fmt(gst);
+  document.getElementById('preview-subtotal').textContent = fmt(subtotal + gst);
   document.getElementById('preview-delivery').textContent = fmt(delivery);
   document.getElementById('preview-total').textContent = fmt(total);
 
   const discountRow = document.getElementById('discount-row');
-  if (appliedDiscount > 0) {
+  const discountLabel = discountRow.querySelector('span');
+  if (appliedFreeDelivery && appliedDeliverySavings > 0) {
     discountRow.classList.remove('hidden');
+    if (discountLabel) discountLabel.textContent = t('freeDeliverySaving');
+    document.getElementById('preview-discount').textContent = `-${fmt(appliedDeliverySavings)}`;
+  } else if (appliedDiscount > 0) {
+    discountRow.classList.remove('hidden');
+    if (discountLabel) discountLabel.textContent = t('discount');
     document.getElementById('preview-discount').textContent = `-${fmt(appliedDiscount)}`;
   } else {
     discountRow.classList.add('hidden');
   }
 }
 
-function clearCoupon() {
+function clearCouponState() {
   appliedCoupon = null;
   appliedDiscount = 0;
-  const msg = document.getElementById('coupon-msg');
-  msg.classList.add('hidden');
+  appliedFreeDelivery = false;
+  appliedDeliverySavings = 0;
+  appliedTotal = null;
+  document.getElementById('coupon-msg').classList.add('hidden');
+  updateCouponButtons();
+}
+
+function resetDefaultCoupon() {
+  couponManuallyRemoved = false;
+  clearCouponState();
+  document.getElementById('couponCode').value = defaultCoupon;
+}
+
+function removeCouponManually() {
+  couponManuallyRemoved = true;
+  clearCouponState();
+  document.getElementById('couponCode').value = '';
+  showCouponMsg(t('couponRemoved'));
+  updatePreview();
+}
+
+function updateCouponButtons() {
+  const removeBtn = document.getElementById('remove-coupon-btn');
+  if (!removeBtn) return;
+  const showRemove = Boolean(appliedCoupon) && !couponManuallyRemoved;
+  removeBtn.classList.toggle('hidden', !showRemove);
+}
+
+async function applyCouponCode(code) {
+  const items = getCartItems();
+  if (!items.length) return false;
+
+  if (!code) {
+    removeCouponManually();
+    return true;
+  }
+
+  try {
+    const res = await fetch('/api/coupons/validate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code, items }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || t('couponInvalid'));
+
+    couponManuallyRemoved = false;
+    appliedCoupon = data.coupon.code;
+    appliedDiscount = data.discount;
+    appliedFreeDelivery = Boolean(
+      data.freeDelivery || data.coupon?.type === 'free_delivery' || data.coupon?.code === 'FREEDELIVERY'
+    );
+    appliedDeliverySavings = data.deliverySavings || (appliedFreeDelivery ? deliveryCharge : 0);
+    appliedTotal = data.newTotal;
+    document.getElementById('couponCode').value = data.coupon.code;
+    if (appliedFreeDelivery) {
+      showCouponMsg(`${t('freeDeliveryApplied')} — ${t('deliveryWaived')} ${fmt(appliedDeliverySavings)}`);
+    } else {
+      showCouponMsg(`${t('couponApplied')} (${data.coupon.code}: -${fmt(data.discount)})`);
+    }
+    updateCouponButtons();
+    updatePreview();
+    return true;
+  } catch (err) {
+    clearCouponState();
+    updatePreview();
+    showCouponMsg(err.message, true);
+    return false;
+  }
+}
+
+async function refreshActiveCoupon() {
+  if (couponManuallyRemoved) {
+    updatePreview();
+    return;
+  }
+
+  const items = getCartItems();
+  if (!items.length) {
+    clearCouponState();
+    document.getElementById('couponCode').value = defaultCoupon;
+    updatePreview();
+    return;
+  }
+
+  const code = getAutoCouponForCart(items);
+  document.getElementById('couponCode').value = code;
+  await applyCouponCode(code);
 }
 
 function showCouponMsg(text, isError = false) {
@@ -181,30 +299,11 @@ document.getElementById('apply-coupon-btn').addEventListener('click', async () =
     showCouponMsg(t('selectOneCylinder'), true);
     return;
   }
-  if (!code) {
-    clearCoupon();
-    updatePreview();
-    return;
-  }
+  await applyCouponCode(code);
+});
 
-  try {
-    const res = await fetch('/api/coupons/validate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code, items }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || t('couponInvalid'));
-
-    appliedCoupon = data.coupon.code;
-    appliedDiscount = data.discount;
-    showCouponMsg(`${t('couponApplied')} (${data.coupon.code}: -${fmt(data.discount)})`);
-    updatePreview();
-  } catch (err) {
-    clearCoupon();
-    updatePreview();
-    showCouponMsg(err.message, true);
-  }
+document.getElementById('remove-coupon-btn').addEventListener('click', () => {
+  removeCouponManually();
 });
 
 function getPaymentMethod() {
@@ -260,6 +359,10 @@ document.getElementById('booking-form').addEventListener('submit', async (e) => 
     return;
   }
 
+  if (!couponManuallyRemoved) {
+    await applyCouponCode(getAutoCouponForCart(items));
+  }
+
   const payload = {
     customerName: document.getElementById('customerName').value,
     phone: document.getElementById('phone').value,
@@ -267,7 +370,8 @@ document.getElementById('booking-form').addEventListener('submit', async (e) => 
     deliveryPreference: document.getElementById('deliveryPreference').value,
     notes: document.getElementById('notes').value,
     paymentMethod: getPaymentMethod(),
-    couponCode: appliedCoupon || document.getElementById('couponCode').value.trim() || null,
+    couponCode: couponManuallyRemoved ? null : (appliedCoupon || getAutoCouponForCart(items)),
+    couponSkipped: couponManuallyRemoved,
     items,
   };
 
@@ -312,7 +416,7 @@ document.getElementById('new-order-btn').addEventListener('click', () => {
   document.getElementById('booking-form').reset();
   resetConsumerLookup();
   currentInvoice = null;
-  clearCoupon();
+  resetDefaultCoupon();
   products.forEach((p) => { quantities[p.id] = 0; });
   if (upiEnabled) document.querySelector('input[value="upi"]').checked = true;
   renderProducts();

@@ -77,12 +77,12 @@
           <div id="products-list"></div>
           <div class="bill-summary">
             <div class="bill-line"><span data-i18n="subtotal">उप-योग</span><span id="preview-subtotal">₹0.00</span></div>
-            <div class="bill-line"><span data-i18n="deliveryGst">डिलीवरी + जीएसटी</span><span id="preview-delivery">₹0.00</span></div>
-            <div class="bill-line"><span data-i18n="gstItems">जीएसटी</span><span id="preview-gst">₹0.00</span></div>
+            <div class="bill-line"><span data-i18n="deliveryGst">डिलीवरी शुल्क</span><span id="preview-delivery">₹0.00</span></div>
             <div class="bill-line hidden" id="discount-row"><span data-i18n="discount">छूट</span><span id="preview-discount" style="color:var(--go-green);">-₹0.00</span></div>
             <div class="coupon-row-input">
               <input type="text" id="couponCode" placeholder="Coupon code" data-i18n-placeholder="couponPlaceholder" style="text-transform:uppercase;" />
               <button type="button" class="btn btn-primary btn-sm" id="apply-coupon-btn" data-i18n="applyCoupon">Apply</button>
+              <button type="button" class="btn btn-sm btn-muted hidden" id="remove-coupon-btn" data-i18n="removeCoupon">Remove</button>
             </div>
             <p class="coupon-msg hidden" id="coupon-msg"></p>
             <div class="bill-line total"><span data-i18n="estimatedTotal">कुल</span><span id="preview-total">₹0.00</span></div>
@@ -141,6 +141,8 @@
 
   <footer>
     <span data-i18n="footer">माँ ब्रह्माणी गैस एजेंसी | गो गैस · जोबत</span><br />
+    <a href="download.html" style="color: var(--muted);" data-i18n="downloadBill">बिल डाउनलोड</a>
+    ·
     <a href="admin.html" style="color: var(--muted);" data-i18n="admin">एडमिन</a>
   </footer>
 

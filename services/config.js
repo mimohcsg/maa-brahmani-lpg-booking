@@ -5,6 +5,16 @@ const DATA_DIR = path.join(__dirname, '..', 'data');
 const PRICING_FILE = path.join(DATA_DIR, 'pricing.json');
 const COUPONS_FILE = path.join(DATA_DIR, 'coupons.json');
 
+const DEFAULT_COUPON_CODE = 'FREEDELIVERY';
+
+const AUTO_COUPON_BY_PRODUCT = {
+  'cylinder-19': 'NOTOBLACK',
+};
+
+const PRODUCT_RESTRICTED_COUPONS = {
+  NOTOBLACK: ['cylinder-19'],
+};
+
 const DEFAULT_PRICING = {
   deliveryCharge: 50,
   deliveryGstPercent: 5,
@@ -51,14 +61,105 @@ function saveCoupons(coupons) {
   return coupons;
 }
 
+function ensureDefaultCoupons() {
+  const coupons = getCoupons();
+  let changed = false;
+  const idx = coupons.findIndex((c) => c.code === 'FREEDELIVERY');
+
+  if (idx === -1) {
+    coupons.push({
+      code: 'FREEDELIVERY',
+      label: 'Free Delivery',
+      type: 'free_delivery',
+      value: 0,
+      minOrder: 0,
+      maxDiscount: null,
+      expiresAt: '2027-12-31',
+      active: true,
+      usageLimit: null,
+      usedCount: 0,
+    });
+    changed = true;
+  } else if (coupons[idx].type !== 'free_delivery') {
+    coupons[idx].type = 'free_delivery';
+    coupons[idx].value = 0;
+    coupons[idx].label = coupons[idx].label || 'Free Delivery';
+    changed = true;
+  }
+
+  const notoIdx = coupons.findIndex((c) => c.code === 'NOTOBLACK');
+  if (notoIdx === -1) {
+    coupons.push({
+      code: 'NOTOBLACK',
+      label: 'Say No To Black Cylinder',
+      type: 'flat',
+      value: 150,
+      minOrder: 150,
+      maxDiscount: 150,
+      expiresAt: '2027-12-31',
+      active: true,
+      usageLimit: null,
+      usedCount: 0,
+    });
+    changed = true;
+  }
+
+  if (changed) saveCoupons(coupons);
+}
+
+function isFreeDeliveryCoupon(coupon) {
+  if (!coupon) return false;
+  return coupon.type === 'free_delivery' || coupon.code === 'FREEDELIVERY';
+}
+
+function cartHasProduct(items, productId) {
+  if (!Array.isArray(items)) return false;
+  return items.some((item) => item.productId === productId && (Number(item.quantity) || 0) > 0);
+}
+
+function getAutoCouponCode(items) {
+  if (!Array.isArray(items) || !items.length) return null;
+  for (const [productId, couponCode] of Object.entries(AUTO_COUPON_BY_PRODUCT)) {
+    if (cartHasProduct(items, productId)) return couponCode;
+  }
+  return DEFAULT_COUPON_CODE;
+}
+
+function resolveOrderCoupon(items, requestedCoupon, skipCoupon = false) {
+  if (skipCoupon) return null;
+  const autoCoupon = getAutoCouponCode(items);
+  const normalized = String(requestedCoupon || '').trim().toUpperCase();
+  if (!normalized) return autoCoupon;
+  if (autoCoupon === 'NOTOBLACK') return 'NOTOBLACK';
+  return normalized;
+}
+
+function couponAllowedForCart(couponCode, items) {
+  const requiredProducts = PRODUCT_RESTRICTED_COUPONS[String(couponCode).toUpperCase()];
+  if (!requiredProducts) return { valid: true };
+  const allowed = requiredProducts.some((productId) => cartHasProduct(items, productId));
+  if (!allowed) {
+    return {
+      valid: false,
+      error: `${couponCode} coupon applies only to qualifying product orders`,
+    };
+  }
+  return { valid: true };
+}
+
 function findCoupon(code) {
   const normalized = String(code).trim().toUpperCase();
   return getCoupons().find((c) => c.code === normalized && c.active !== false);
 }
 
-function validateCoupon(code, orderAmount) {
+function validateCoupon(code, orderAmount, items = null) {
   const coupon = findCoupon(code);
   if (!coupon) return { valid: false, error: 'Invalid coupon code' };
+
+  if (items) {
+    const productCheck = couponAllowedForCart(coupon.code, items);
+    if (!productCheck.valid) return productCheck;
+  }
 
   if (coupon.expiresAt && new Date(coupon.expiresAt) < new Date()) {
     return { valid: false, error: 'Coupon has expired' };
@@ -70,6 +171,21 @@ function validateCoupon(code, orderAmount) {
 
   if (coupon.minOrder && orderAmount < coupon.minOrder) {
     return { valid: false, error: `Minimum order ₹${coupon.minOrder} required` };
+  }
+
+  if (isFreeDeliveryCoupon(coupon)) {
+    return {
+      valid: true,
+      coupon: {
+        code: coupon.code,
+        type: 'free_delivery',
+        value: 0,
+        label: coupon.label || coupon.code,
+      },
+      discount: 0,
+      freeDelivery: true,
+      deliverySavings: 0,
+    };
   }
 
   let discount = 0;
@@ -103,7 +219,7 @@ function incrementCouponUsage(code) {
 }
 
 function calculateBill(items, pricing, couponCode = null) {
-  const { products, deliveryCharge, deliveryGstPercent } = pricing;
+  const { products, deliveryCharge } = pricing;
 
   const lineItems = items.map((item) => {
     const product = products.find((p) => p.id === item.productId);
@@ -125,30 +241,46 @@ function calculateBill(items, pricing, couponCode = null) {
 
   const itemsSubtotal = lineItems.reduce((s, i) => s + i.subtotal, 0);
   const itemsGst = lineItems.reduce((s, i) => s + i.gst, 0);
-  const deliveryGst = (deliveryCharge * deliveryGstPercent) / 100;
-  const preDiscountTotal = itemsSubtotal + itemsGst + deliveryCharge + deliveryGst;
+  const deliveryGst = 0;
+  const preDiscountTotal = itemsSubtotal + itemsGst + deliveryCharge;
 
   let discount = 0;
   let coupon = null;
+  let freeDelivery = false;
+  let effectiveDelivery = deliveryCharge;
+
   if (couponCode) {
-    const result = validateCoupon(couponCode, preDiscountTotal);
+    const result = validateCoupon(couponCode, preDiscountTotal, items);
     if (!result.valid) throw new Error(result.error);
-    discount = result.discount;
     coupon = result.coupon;
+    if (result.freeDelivery || isFreeDeliveryCoupon(coupon)) {
+      freeDelivery = true;
+      effectiveDelivery = 0;
+    } else {
+      discount = result.discount;
+    }
   }
 
-  const grandTotal = Math.max(0, Math.round((preDiscountTotal - discount) * 100) / 100);
+  const deliverySavings = freeDelivery ? deliveryCharge : 0;
+
+  const grandTotal = Math.max(
+    0,
+    Math.round((itemsSubtotal + itemsGst + effectiveDelivery - discount) * 100) / 100
+  );
 
   return {
     lineItems,
-    deliveryCharge,
+    deliveryCharge: effectiveDelivery,
+    deliveryChargeOriginal: deliveryCharge,
     deliveryGst,
-    deliveryGstPercent,
+    deliveryGstPercent: 0,
     subtotal: itemsSubtotal,
     totalGst: itemsGst + deliveryGst,
     preDiscountTotal: Math.round(preDiscountTotal * 100) / 100,
     discount,
     coupon,
+    freeDelivery,
+    deliverySavings,
     grandTotal,
   };
 }
@@ -162,5 +294,11 @@ module.exports = {
   validateCoupon,
   incrementCouponUsage,
   calculateBill,
+  ensureDefaultCoupons,
+  getAutoCouponCode,
+  resolveOrderCoupon,
+  cartHasProduct,
+  AUTO_COUPON_BY_PRODUCT,
+  DEFAULT_COUPON_CODE,
   DEFAULT_PRICING,
 };
