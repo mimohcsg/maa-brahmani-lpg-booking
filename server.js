@@ -108,6 +108,9 @@ app.use(cors());
 app.use(express.json());
 
 const PUBLIC_DIR = path.join(__dirname, 'public');
+app.get('/favicon.ico', (_req, res) => {
+  res.sendFile(path.join(PUBLIC_DIR, 'assets', 'favicon-32.png'));
+});
 app.get('/', (_req, res) => {
   res.sendFile(path.join(PUBLIC_DIR, 'home.html'));
 });
