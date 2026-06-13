@@ -153,7 +153,7 @@ async function generateInvoicePdf(order, business) {
 
     // Transport / delivery row
     const deliveryAmount = order.isManualBill
-      ? (bill.transportCharge ?? bill.deliveryCharge ?? 0)
+      ? (bill.transportChargeOriginal ?? bill.transportCharge ?? bill.deliveryCharge ?? 0)
       : getDeliveryChargeOriginal(bill);
     doc.text(String(rowNum), cols[0].x + 2, y + 4);
     doc.text('Transport / Delivery Charge', cols[1].x + 2, y + 4, { width: cols[1].w });
@@ -163,24 +163,44 @@ async function generateInvoicePdf(order, business) {
     doc.text(fmtMoney(deliveryAmount), cols[5].x + 2, y + 4, { width: cols[5].w, align: 'right' });
     y += 36;
 
-    // UPI payment details
-    doc.fontSize(9).font('Helvetica-Bold').fillColor('#000').text('UPI Payment Details', 40, y);
-    y += 14;
-    doc.fontSize(8).font('Helvetica');
-    if (business.upiId) {
-      doc.text(`UPI ID: ${business.upiId}`, 40, y);
+    // Payment details
+    if (order.isManualBill) {
+      doc.fontSize(9).font('Helvetica-Bold').fillColor('#000').text('Fund Transfer / Bank Details', 40, y);
+      y += 14;
+      doc.fontSize(8).font('Helvetica');
+      doc.text(`Bank: ${business.bankName || 'HDFC Bank'}`, 40, y);
       y += 12;
-    }
-    if (business.upiName) {
-      doc.text(`Payee name: ${business.upiName}`, 40, y);
+      doc.text(`Account Holder: ${business.bankAccountHolder || 'Yours Meshwork Pvt. Ltd.'}`, 40, y);
       y += 12;
+      doc.text(`Account No: ${business.bankAccountNumber || '50200059325501'}`, 40, y);
+      y += 12;
+      if (business.bankIfsc) {
+        doc.text(`IFSC: ${business.bankIfsc}`, 40, y);
+        y += 12;
+      }
+      doc.text(`Amount payable: Rs. ${fmtMoney(bill.grandTotal)}`, 40, y);
+      y += 12;
+      doc.text(`Payment reference: ${order.invoiceNumber}`, 40, y);
+      y += 20;
+    } else {
+      doc.fontSize(9).font('Helvetica-Bold').fillColor('#000').text('UPI Payment Details', 40, y);
+      y += 14;
+      doc.fontSize(8).font('Helvetica');
+      if (business.upiId) {
+        doc.text(`UPI ID: ${business.upiId}`, 40, y);
+        y += 12;
+      }
+      if (business.upiName) {
+        doc.text(`Payee name: ${business.upiName}`, 40, y);
+        y += 12;
+      }
+      doc.text(`Amount payable: Rs. ${fmtMoney(bill.grandTotal)}`, 40, y);
+      y += 12;
+      doc.text(`Payment reference: ${order.invoiceNumber}`, 40, y);
+      y += 12;
+      doc.text('Pay using Google Pay, PhonePe, Paytm or any UPI app.', 40, y, { width: pageWidth });
+      y += 20;
     }
-    doc.text(`Amount payable: Rs. ${fmtMoney(bill.grandTotal)}`, 40, y);
-    y += 12;
-    doc.text(`Payment reference: ${order.invoiceNumber}`, 40, y);
-    y += 12;
-    doc.text('Pay using Google Pay, PhonePe, Paytm or any UPI app.', 40, y, { width: pageWidth });
-    y += 20;
 
     doc.fontSize(9).font('Helvetica-Bold').text('Terms & Conditions', 40, y);
     y += 12;
@@ -190,7 +210,7 @@ async function generateInvoicePdf(order, business) {
     // Totals (right aligned box)
     const totalsX = 340;
     const deliveryAmountTotal = order.isManualBill
-      ? (bill.transportCharge ?? bill.deliveryCharge ?? 0)
+      ? (bill.transportChargeOriginal ?? bill.transportCharge ?? bill.deliveryCharge ?? 0)
       : getDeliveryChargeOriginal(bill);
     doc.fontSize(9).font('Helvetica');
     if (order.isManualBill) {

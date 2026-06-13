@@ -582,7 +582,7 @@ function renderManualProducts() {
     const price = manualBillPrices[p.id] ?? p.price;
     const gstPct = manualBillGstPercent[p.id] ?? p.gstPercent;
     const qty = manualBillQty[p.id] || 0;
-    const lineGst = qty > 0 ? ((price * qty * gstPct) / 100) : 0;
+    const lineGst = qty > 0 ? Math.round(((price * qty * gstPct) / 100) * 100) / 100 : 0;
     return `
       <div class="product-row manual-product-row">
         <div class="product-info">
@@ -636,6 +636,8 @@ async function refreshManualBillTotal() {
   const transportEl = document.getElementById('manual-transport-display');
   const discountRow = document.getElementById('manual-discount-row');
   const discountEl = document.getElementById('manual-discount');
+  const waiverRow = document.getElementById('manual-transport-waiver-row');
+  const waiverEl = document.getElementById('manual-transport-waiver');
   if (!totalEl) return;
 
   const items = getManualBillItems();
@@ -646,12 +648,12 @@ async function refreshManualBillTotal() {
     if (gstEl) gstEl.textContent = fmtMoney(0);
     if (transportEl) transportEl.textContent = fmtMoney(transportCharge);
     if (discountRow) discountRow.classList.add('hidden');
+    if (waiverRow) waiverRow.classList.add('hidden');
     totalEl.textContent = fmtMoney(transportCharge);
     return;
   }
 
-  const entered = document.getElementById('manual-coupon')?.value.trim();
-  const coupon = entered || getManualAutoCoupon(items);
+  const coupon = document.getElementById('manual-coupon')?.value.trim().toUpperCase() || null;
 
   try {
     const res = await fetch('/api/admin/bills/preview', {
@@ -662,15 +664,21 @@ async function refreshManualBillTotal() {
     const bill = await res.json();
     if (!res.ok) throw new Error(bill.error || 'Preview failed');
 
+    const transportOriginal = bill.transportChargeOriginal ?? transportCharge;
     if (subtotalEl) subtotalEl.textContent = fmtMoney(bill.subtotal);
     if (gstEl) gstEl.textContent = fmtMoney(bill.itemsGst ?? bill.totalGst ?? 0);
-    if (transportEl) transportEl.textContent = fmtMoney(bill.transportCharge ?? bill.deliveryCharge ?? 0);
-    if (bill.discount > 0 || bill.freeDelivery) {
+    if (transportEl) transportEl.textContent = fmtMoney(transportOriginal);
+
+    if (bill.freeDelivery && (bill.transportSavings || bill.deliverySavings) > 0) {
+      waiverRow?.classList.remove('hidden');
+      if (waiverEl) waiverEl.textContent = `-₹${(bill.transportSavings || bill.deliverySavings).toFixed(2)}`;
+    } else {
+      waiverRow?.classList.add('hidden');
+    }
+
+    if (bill.discount > 0) {
       discountRow?.classList.remove('hidden');
-      if (discountEl) {
-        const savings = bill.discount + (bill.transportSavings || bill.deliverySavings || 0);
-        discountEl.textContent = `-₹${savings.toFixed(2)}`;
-      }
+      if (discountEl) discountEl.textContent = `-₹${bill.discount.toFixed(2)}`;
     } else {
       discountRow?.classList.add('hidden');
     }
@@ -679,14 +687,18 @@ async function refreshManualBillTotal() {
     let subtotal = 0;
     let gst = 0;
     items.forEach((item) => {
-      subtotal += item.unitPrice * item.quantity;
-      gst += (item.unitPrice * item.quantity * item.gstPercent) / 100;
+      const line = item.unitPrice * item.quantity;
+      subtotal += line;
+      gst += Math.round(((line * item.gstPercent) / 100) * 100) / 100;
     });
+    subtotal = Math.round(subtotal * 100) / 100;
+    gst = Math.round(gst * 100) / 100;
     if (subtotalEl) subtotalEl.textContent = fmtMoney(subtotal);
     if (gstEl) gstEl.textContent = fmtMoney(gst);
     if (transportEl) transportEl.textContent = fmtMoney(transportCharge);
     if (discountRow) discountRow.classList.add('hidden');
-    totalEl.textContent = fmtMoney(subtotal + gst + transportCharge);
+    if (waiverRow) waiverRow.classList.add('hidden');
+    totalEl.textContent = fmtMoney(Math.round((subtotal + gst + transportCharge) * 100) / 100);
   }
 }
 
@@ -759,6 +771,54 @@ function showManualBillError(message) {
   el.classList.remove('hidden');
 }
 
+function showManualBillWhatsAppActions(invoiceNumber, notifications) {
+  const waLink = notifications?.whatsapp?.waLink;
+  const openBtn = document.getElementById('manual-result-whatsapp');
+  const sendBtn = document.getElementById('manual-send-whatsapp-btn');
+  if (openBtn) {
+    if (waLink) {
+      openBtn.href = waLink;
+      openBtn.classList.remove('hidden');
+    } else {
+      openBtn.classList.add('hidden');
+    }
+  }
+  if (sendBtn) {
+    sendBtn.dataset.invoice = invoiceNumber;
+    sendBtn.classList.toggle('hidden', Boolean(waLink));
+  }
+}
+
+async function sendManualBillWhatsApp(invoiceNumber) {
+  const btn = document.getElementById('manual-send-whatsapp-btn');
+  if (!invoiceNumber || !btn) return;
+  btn.disabled = true;
+  const prev = btn.textContent;
+  btn.textContent = 'Sending...';
+  try {
+    const res = await fetch(`/api/admin/orders/${encodeURIComponent(invoiceNumber)}/send-bill`, {
+      method: 'POST',
+      headers: adminHeaders(),
+    });
+    const data = await res.json();
+    if (handleAuthError(res)) return;
+    if (!res.ok) throw new Error(data.error || 'Failed to send');
+    showManualBillWhatsAppActions(invoiceNumber, data.notifications);
+    if (data.waLink) window.open(data.waLink, '_blank');
+    else alert(data.message || 'Bill sent.');
+  } catch (err) {
+    alert(err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = prev;
+  }
+}
+
+document.getElementById('manual-send-whatsapp-btn')?.addEventListener('click', () => {
+  const invoice = document.getElementById('manual-send-whatsapp-btn')?.dataset.invoice;
+  sendManualBillWhatsApp(invoice);
+});
+
 document.getElementById('manual-phone')?.addEventListener('blur', lookupManualConsumer);
 document.getElementById('manual-coupon')?.addEventListener('input', refreshManualBillTotal);
 document.getElementById('manual-transport-charge')?.addEventListener('input', (e) => {
@@ -785,7 +845,8 @@ document.getElementById('manual-bill-form')?.addEventListener('submit', async (e
     billTime: document.getElementById('manual-bill-time').value,
     deliveryPreference: document.getElementById('manual-delivery').value,
     paymentMethod: document.getElementById('manual-payment').value,
-    couponCode: document.getElementById('manual-coupon').value.trim() || null,
+    couponCode: document.getElementById('manual-coupon').value.trim().toUpperCase() || null,
+    couponSkipped: !document.getElementById('manual-coupon').value.trim(),
     notes: document.getElementById('manual-notes').value.trim(),
     transportCharge: getManualTransportCharge(),
     sendNotification: document.getElementById('manual-send-notification').checked,
@@ -810,6 +871,7 @@ document.getElementById('manual-bill-form')?.addEventListener('submit', async (e
     document.getElementById('manual-result-total').textContent = fmtMoney(data.order.bill.grandTotal);
     document.getElementById('manual-result-pdf').href = data.pdfUrl;
     document.getElementById('manual-result-text').textContent = data.billText || '';
+    showManualBillWhatsAppActions(data.order.invoiceNumber, data.notifications);
     document.getElementById('manual-bill-result').classList.remove('hidden');
     document.getElementById('manual-bill-result').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   } catch (err) {
@@ -835,6 +897,8 @@ document.getElementById('manual-new-bill-btn')?.addEventListener('click', () => 
     delete transportField.dataset.touched;
   }
   document.getElementById('manual-bill-result').classList.add('hidden');
+  document.getElementById('manual-result-whatsapp')?.classList.add('hidden');
+  document.getElementById('manual-send-whatsapp-btn')?.classList.add('hidden');
   showManualBillError('');
   renderManualProducts();
   refreshManualBillTotal();

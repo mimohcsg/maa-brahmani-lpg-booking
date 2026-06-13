@@ -197,7 +197,9 @@ async function createOrderRecord({
   }
 
   const pricing = getPricing();
-  const effectiveCoupon = resolveOrderCoupon(items, couponCode, Boolean(couponSkipped));
+  const effectiveCoupon = isManualBill
+    ? (couponSkipped || !couponCode?.trim() ? null : String(couponCode).trim().toUpperCase())
+    : resolveOrderCoupon(items, couponCode, Boolean(couponSkipped));
   const bill = isManualBill
     ? calculateManualBill(items, pricing, { transportCharge, couponCode: effectiveCoupon })
     : calculateBill(items, pricing, effectiveCoupon);
@@ -286,6 +288,19 @@ function refreshCustomerBill(order) {
   return order;
 }
 
+function buildManualBillBankLines(order, business) {
+  return [
+    '',
+    '*Fund Transfer / Bank Details*',
+    `Bank: ${business.bankName || 'HDFC Bank'}`,
+    `Account Holder: ${business.bankAccountHolder || 'Yours Meshwork Pvt. Ltd.'}`,
+    `Account No: ${business.bankAccountNumber || '50200059325501'}`,
+    business.bankIfsc ? `IFSC: ${business.bankIfsc}` : null,
+    `Amount: ₹${order.bill.grandTotal.toFixed(2)}`,
+    `Reference: ${order.invoiceNumber}`,
+  ].filter(Boolean);
+}
+
 function buildBillText(order, business) {
   const payLine =
     order.paymentMethod === 'upi'
@@ -316,7 +331,7 @@ function buildBillText(order, business) {
           return `${formatBillProductName(i.name)} x ${i.quantity}    ₹${lineAmount.toFixed(2)}`;
         })),
     order.isManualBill
-      ? `Transport Charge              ₹${(order.bill.transportCharge ?? order.bill.deliveryCharge ?? 0).toFixed(2)}`
+      ? `Transport Charge              ₹${(order.bill.transportChargeOriginal ?? order.bill.transportCharge ?? 0).toFixed(2)}`
       : `Delivery Charges            ₹${getDeliveryChargeOriginal(order.bill).toFixed(2)}`,
     order.isManualBill
       ? `GST                           ₹${(order.bill.itemsGst ?? order.bill.totalGst ?? 0).toFixed(2)}`
@@ -333,6 +348,7 @@ function buildBillText(order, business) {
     payLine,
     `Delivery: ${order.deliveryPreference}`,
     order.notes ? `Notes: ${order.notes}` : null,
+    ...(order.isManualBill ? buildManualBillBankLines(order, business) : []),
     '',
     `📍 ${BUSINESS.address}`,
     '',
@@ -651,17 +667,46 @@ app.get('/api/orders/:invoiceNumber', (req, res) => {
 app.post('/api/admin/bills/preview', (req, res) => {
   if (!checkAdmin(req, res)) return;
   try {
-    const { items, transportCharge, couponCode, couponSkipped } = req.body;
+    const { items, transportCharge, couponCode } = req.body;
     if (!items?.length) return res.status(400).json({ error: 'At least one item is required' });
     const pricing = getPricing();
-    const effectiveCoupon = resolveOrderCoupon(items, couponCode, Boolean(couponSkipped));
+    const explicitCoupon = couponCode?.trim() ? String(couponCode).trim().toUpperCase() : null;
     const bill = calculateManualBill(items, pricing, {
       transportCharge,
-      couponCode: effectiveCoupon,
+      couponCode: explicitCoupon,
     });
     res.json(bill);
   } catch (err) {
     res.status(400).json({ error: err.message || 'Failed to preview bill' });
+  }
+});
+
+app.post('/api/admin/orders/:invoiceNumber/send-bill', async (req, res) => {
+  if (!checkAdmin(req, res)) return;
+  try {
+    const order = findOrder(req.params.invoiceNumber);
+    if (!order) return res.status(404).json({ error: 'Order not found' });
+
+    refreshCustomerBill(order);
+    await ensureOrderPdf(order);
+    const pdfUrl = order.pdfUrl || getPdfPublicUrl(order.invoiceNumber);
+    const smsType = order.paymentMethod === 'upi' ? 'payment' : 'confirmed';
+    const notifications = await notifyCustomer(order, order.billText, {
+      smsText: buildSmsText(order, smsType),
+      pdfUrl,
+      logoUrl: getLogoPublicUrl(BASE_URL),
+    });
+    updateOrder(order.invoiceNumber, { notifications, billText: order.billText, pdfUrl });
+
+    res.json({
+      success: true,
+      message: 'Bill sent to customer.',
+      notifications,
+      waLink: notifications?.whatsapp?.waLink || null,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message || 'Failed to send bill' });
   }
 });
 
@@ -691,13 +736,14 @@ app.post('/api/admin/bills', async (req, res) => {
     if (!items?.length) return res.status(400).json({ error: 'At least one item is required' });
 
     const createdAt = parseBillDateTime(billDate, billTime);
+    const explicitCoupon = couponCode?.trim() ? String(couponCode).trim().toUpperCase() : null;
     const result = await createOrderRecord({
       customerName,
       phone,
       address,
       items,
-      couponCode,
-      couponSkipped,
+      couponCode: explicitCoupon,
+      couponSkipped: !explicitCoupon,
       paymentMethod,
       deliveryPreference,
       notes,

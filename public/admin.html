@@ -182,8 +182,8 @@
                 </select>
               </div>
               <div class="form-group">
-                <label for="manual-coupon">Coupon Code</label>
-                <input type="text" id="manual-coupon" placeholder="Optional" style="text-transform:uppercase;" />
+                <label for="manual-coupon">Coupon Code (optional)</label>
+                <input type="text" id="manual-coupon" placeholder="Leave blank — no auto discount" style="text-transform:uppercase;" />
               </div>
             </div>
             <div class="form-group">
@@ -203,12 +203,13 @@
               <div class="bill-line"><span>Subtotal (excl. GST)</span><span id="manual-subtotal">₹0.00</span></div>
               <div class="bill-line"><span>GST</span><span id="manual-gst">₹0.00</span></div>
               <div class="bill-line"><span>Transport Charge</span><span id="manual-transport-display">₹0.00</span></div>
-              <div class="bill-line hidden" id="manual-discount-row"><span>Discount</span><span id="manual-discount" style="color:var(--go-green);">-₹0.00</span></div>
+              <div class="bill-line hidden" id="manual-transport-waiver-row"><span>Transport waiver (coupon)</span><span id="manual-transport-waiver" style="color:var(--go-green);">-₹0.00</span></div>
+              <div class="bill-line hidden" id="manual-discount-row"><span>Discount (coupon)</span><span id="manual-discount" style="color:var(--go-green);">-₹0.00</span></div>
               <div class="bill-line total"><span>Grand Total</span><span id="manual-bill-total">₹0.00</span></div>
             </div>
             <label class="checkbox-row" style="display:flex;align-items:center;gap:0.5rem;margin-top:1rem;">
-              <input type="checkbox" id="manual-send-notification" />
-              Send bill to customer via WhatsApp/SMS
+              <input type="checkbox" id="manual-send-notification" checked />
+              Send bill to customer via WhatsApp/SMS when generated
             </label>
             <button type="submit" class="btn btn-primary" style="margin-top:1rem;">Generate Bill</button>
             <p class="error hidden" id="manual-bill-error"></p>
@@ -220,6 +221,8 @@
           <p><strong>Total:</strong> <span id="manual-result-total"></span></p>
           <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.75rem;">
             <a id="manual-result-pdf" class="btn btn-sm btn-pdf" target="_blank" rel="noopener">📄 Open PDF</a>
+            <a id="manual-result-whatsapp" class="btn btn-sm btn-whatsapp hidden" target="_blank" rel="noopener">📱 Open WhatsApp Bill</a>
+            <button type="button" class="btn btn-sm btn-whatsapp hidden" id="manual-send-whatsapp-btn">📱 Send on WhatsApp</button>
             <button type="button" class="btn btn-sm btn-primary" id="manual-new-bill-btn">Create Another</button>
           </div>
           <pre class="invoice-box" id="manual-result-text" style="margin-top:1rem;white-space:pre-wrap;"></pre>

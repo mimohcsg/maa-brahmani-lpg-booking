@@ -300,6 +300,7 @@ header .location { font-size: 0.8rem; opacity: 0.85; margin-top: 0.5rem; }
 .btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
 .btn-primary { background: linear-gradient(135deg, var(--go-red), var(--go-orange)); color: white; }
 .btn-whatsapp { background: #25d366; color: white; margin-top: 0.75rem; }
+.btn-sm.btn-whatsapp { margin-top: 0; color: white; text-decoration: none; }
 
 .success-card { text-align: center; }
 .success-card .icon { font-size: 3rem; margin-bottom: 0.5rem; }
