@@ -14,7 +14,7 @@
     </div>
     <img src="assets/gogas-logo.png" alt="Go Gas" class="header-logo" />
     <h1 data-i18n="businessName">माँ ब्रह्माणी गैस एजेंसी | गो गैस</h1>
-    <p data-i18n="tagline">अधिकृत गो गैस वितरक — ऑनलाइन बुकिंग</p>
+    <p data-i18n="tagline">अधिकृत गो गैस वितरक — ऑनलाइन ऑर्डर</p>
     <p class="location" data-i18n="location">📍 खातली रोड, श्री रिसॉर्ट्स के सामने, जोबत, MP</p>
   </header>
 
@@ -40,7 +40,7 @@
                 <input type="tel" id="phone" required pattern="[0-9]{10}" maxlength="10" inputmode="numeric" />
                 <button type="button" class="voice-btn" data-field="phone" aria-label="Speak">🎤</button>
               </div>
-              <small data-i18n="phoneHint">बिल और SMS इस नंबर पर भेजा जाएगा</small>
+              <small data-i18n="customerPhoneHint">पुष्टि के लिए इस नंबर पर संपर्क किया जाएगा</small>
             </div>
             <div class="form-group">
               <label for="consumerNumber" data-i18n="consumerNumber">एलपीजी उपभोक्ता संख्या</label>
@@ -89,8 +89,7 @@
           </div>
         </div>
 
-        <div class="card">
-          <h2 data-i18n="paymentMethod">भुगतान विधि</h2>
+        <div class="card hidden" id="payment-card">
           <div class="payment-options">
             <label class="payment-option">
               <input type="radio" name="paymentMethod" value="upi" checked />
@@ -103,8 +102,10 @@
           </div>
         </div>
 
-        <button type="submit" class="btn btn-primary" id="submit-btn" data-i18n="placeOrder">
-          ऑर्डर करें
+        <p class="customer-order-note" data-i18n="customerOrderNote">ऑर्डर दर्ज करें — हम व्हाट्सऐप पर पुष्टि और भुगतान की जानकारी भेजेंगे।</p>
+
+        <button type="submit" class="btn btn-primary" id="submit-btn" data-i18n="customerPlaceOrder">
+          ऑर्डर अनुरोध भेजें
         </button>
         <p class="error hidden" id="form-error"></p>
       </form>
@@ -113,23 +114,24 @@
     <div id="success-section" class="hidden">
       <div class="card success-card">
         <div class="icon">✅</div>
-        <h2 data-i18n="orderSuccess">ऑर्डर सफल!</h2>
-        <p><span data-i18n="invoice">इनवॉइस</span>: <strong id="success-invoice"></strong></p>
-        <p><span data-i18n="consumerNumber">एलपीजी उपभोक्ता संख्या</span>: <strong id="success-consumer"></strong></p>
+        <h2 data-i18n="customerOrderSuccess">ऑर्डर अनुरोध प्राप्त!</h2>
+        <p><span data-i18n="reference">संदर्भ</span>: <strong id="success-invoice"></strong></p>
+        <p class="hidden" id="success-consumer-row"><span data-i18n="consumerNumber">एलपीजी उपभोक्ता संख्या</span>: <strong id="success-consumer"></strong></p>
         <p id="success-message"></p>
+        <p class="customer-success-note" data-i18n="customerSuccessNote">हम जल्द ही व्हाट्सऐप पर संपर्क करेंगे।</p>
 
-        <div id="upi-section" class="hidden">
+        <div id="upi-section" class="hidden owner-only">
           <p class="upi-hint" data-i18n="upiScan">QR स्कैन करें या UPI ऐप खोलें</p>
           <img id="upi-qr" alt="UPI QR" class="upi-qr" />
           <a id="upi-link" class="btn btn-upi" target="_blank" rel="noopener" data-i18n="payNowUpi">UPI से भुगतान</a>
           <button type="button" class="btn btn-primary" id="paid-btn" data-i18n="iHavePaid">मैंने भुगतान कर दिया</button>
         </div>
 
-        <div class="invoice-box" id="success-bill"></div>
-        <a id="pdf-link" class="btn btn-pdf hidden" target="_blank" rel="noopener" data-i18n="downloadPdf">
+        <div class="invoice-box owner-only hidden" id="success-bill"></div>
+        <a id="pdf-link" class="btn btn-pdf hidden owner-only" target="_blank" rel="noopener" data-i18n="downloadPdf">
           📄 Download GST Invoice (PDF)
         </a>
-        <a id="whatsapp-link" class="btn btn-whatsapp hidden" target="_blank" rel="noopener" data-i18n="openWhatsapp">
+        <a id="whatsapp-link" class="btn btn-whatsapp hidden owner-only" target="_blank" rel="noopener" data-i18n="openWhatsapp">
           व्हाट्सऐप बिल
         </a>
         <button type="button" class="btn btn-primary" id="new-order-btn" style="margin-top: 1rem;" data-i18n="placeAnother">
@@ -144,10 +146,11 @@
     <a href="/" style="color: var(--muted);">← Home</a>
     ·
     <a href="download.html" style="color: var(--muted);" data-i18n="downloadBill">बिल डाउनलोड</a>
-    ·
-    <a href="admin.html" style="color: var(--muted);" data-i18n="admin">एडमिन</a>
+    <br />
+    <span class="footer-credit" data-i18n="developedBy">Developed by Yours Meshwork Private Limited</span>
   </footer>
 
+  <script>window.BOOKING_MODE = 'customer';</script>
   <script src="i18n.js"></script>
   <script src="voice.js"></script>
   <script src="app.js"></script>

@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Owner Booking | Maa Brahmani Gas Agency</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header>
+    <div class="lang-toggle">
+      <button type="button" id="lang-hi" class="lang-btn active">हिंदी</button>
+      <button type="button" id="lang-en" class="lang-btn">English</button>
+    </div>
+    <img src="assets/gogas-logo.png" alt="Go Gas" class="header-logo" />
+    <h1 data-i18n="businessName">माँ ब्रह्माणी गैस एजेंसी | गो गैस</h1>
+    <p data-i18n="ownerTagline">मालिक — बुकिंग और व्हाट्सऐप बिल</p>
+    <p class="location" data-i18n="location">📍 खातली रोड, श्री रिसॉर्ट्स के सामने, जोबत, MP</p>
+  </header>
+
+  <div class="container">
+    <div class="card" id="owner-login-card">
+      <h2 data-i18n="ownerLoginTitle">मालिक लॉगिन</h2>
+      <p class="meta" data-i18n="ownerLoginHint">ग्राहक के लिए ऑर्डर बनाएं और व्हाट्सऐप पर बिल भेजें</p>
+      <div class="form-group">
+        <label for="owner-key" data-i18n="ownerKeyLabel">एडमिन कुंजी</label>
+        <input type="password" id="owner-key" data-i18n-placeholder="ownerKeyPlaceholder" />
+      </div>
+      <button type="button" class="btn btn-primary" id="owner-login-btn" data-i18n="ownerLoginBtn">लॉगिन</button>
+      <p class="error hidden" id="owner-login-error"></p>
+    </div>
+
+    <div id="owner-app" class="hidden">
+      <div id="booking-section">
+        <form id="booking-form">
+          <div class="card">
+            <h2 data-i18n="customerDetails">ग्राहक विवरण</h2>
+            <p class="voice-hint" data-i18n="voiceHint">माइक आइकन दबाकर बोलें</p>
+            <p id="voice-status" class="voice-status hidden" role="status" aria-live="polite"></p>
+
+            <div class="form-group">
+              <label for="customerName" data-i18n="fullName">पूरा नाम *</label>
+              <div class="input-with-voice">
+                <input type="text" id="customerName" required data-i18n-placeholder="namePlaceholder" />
+                <button type="button" class="voice-btn" data-field="customerName" aria-label="Speak">🎤</button>
+              </div>
+            </div>
+            <div class="row">
+              <div class="form-group">
+                <label for="phone" data-i18n="whatsappNumber">व्हाट्सऐप नंबर *</label>
+                <div class="input-with-voice">
+                  <input type="tel" id="phone" required pattern="[0-9]{10}" maxlength="10" inputmode="numeric" />
+                  <button type="button" class="voice-btn" data-field="phone" aria-label="Speak">🎤</button>
+                </div>
+                <small data-i18n="phoneHint">बिल और SMS इस नंबर पर भेजा जाएगा</small>
+              </div>
+              <div class="form-group">
+                <label for="consumerNumber" data-i18n="consumerNumber">एलपीजी उपभोक्ता संख्या</label>
+                <input type="text" id="consumerNumber" readonly class="readonly-input" data-i18n-placeholder="consumerAuto" />
+                <small id="consumer-hint" class="consumer-hint" data-i18n="consumerHint">नंबर दर्ज करने पर स्वतः भरा जाएगा</small>
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="address" data-i18n="deliveryAddress">डिलीवरी पता *</label>
+              <div class="input-with-voice">
+                <textarea id="address" rows="2" required data-i18n-placeholder="addressPlaceholder"></textarea>
+                <button type="button" class="voice-btn voice-btn-textarea" data-field="address" aria-label="Speak">🎤</button>
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="deliveryPreference" data-i18n="deliveryPreference">डिलीवरी विकल्प</label>
+              <select id="deliveryPreference">
+                <option value="Standard (1-2 days)" data-i18n="deliveryStandard">सामान्य (1-2 दिन)</option>
+                <option value="Same day (if available)" data-i18n="deliverySameDay">उसी दिन</option>
+                <option value="Scheduled delivery" data-i18n="deliveryScheduled">निर्धारित डिलीवरी</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="notes" data-i18n="notes">नोट्स</label>
+              <div class="input-with-voice">
+                <input type="text" id="notes" data-i18n-placeholder="notesPlaceholder" />
+                <button type="button" class="voice-btn" data-field="notes" aria-label="Speak">🎤</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <h2 data-i18n="selectCylinders">सिलेंडर चुनें</h2>
+            <div id="products-list"></div>
+            <div class="bill-summary">
+              <div class="bill-line"><span data-i18n="subtotal">उप-योग</span><span id="preview-subtotal">₹0.00</span></div>
+              <div class="bill-line"><span data-i18n="deliveryGst">डिलीवरी शुल्क</span><span id="preview-delivery">₹0.00</span></div>
+              <div class="bill-line hidden" id="discount-row"><span data-i18n="discount">छूट</span><span id="preview-discount" style="color:var(--go-green);">-₹0.00</span></div>
+              <div class="coupon-row-input">
+                <input type="text" id="couponCode" placeholder="Coupon code" data-i18n-placeholder="couponPlaceholder" style="text-transform:uppercase;" />
+                <button type="button" class="btn btn-primary btn-sm" id="apply-coupon-btn" data-i18n="applyCoupon">Apply</button>
+                <button type="button" class="btn btn-sm btn-muted hidden" id="remove-coupon-btn" data-i18n="removeCoupon">Remove</button>
+              </div>
+              <p class="coupon-msg hidden" id="coupon-msg"></p>
+              <div class="bill-line total"><span data-i18n="estimatedTotal">कुल</span><span id="preview-total">₹0.00</span></div>
+            </div>
+          </div>
+
+          <div class="card" id="payment-card">
+            <h2 data-i18n="paymentMethod">भुगतान विधि</h2>
+            <div class="payment-options">
+              <label class="payment-option">
+                <input type="radio" name="paymentMethod" value="upi" checked />
+                <span>📱 <span data-i18n="payUpi">UPI से भुगतान</span></span>
+              </label>
+              <label class="payment-option">
+                <input type="radio" name="paymentMethod" value="cod" />
+                <span>💵 <span data-i18n="payCod">डिलीवरी पर नकद</span></span>
+              </label>
+            </div>
+          </div>
+
+          <button type="submit" class="btn btn-primary" id="submit-btn" data-i18n="placeOrder">
+            ऑर्डर करें
+          </button>
+          <p class="error hidden" id="form-error"></p>
+        </form>
+      </div>
+
+      <div id="success-section" class="hidden">
+        <div class="card success-card">
+          <div class="icon">✅</div>
+          <h2 data-i18n="orderSuccess">ऑर्डर सफल!</h2>
+          <p><span data-i18n="invoice">इनवॉइस</span>: <strong id="success-invoice"></strong></p>
+          <p id="success-consumer-row"><span data-i18n="consumerNumber">एलपीजी उपभोक्ता संख्या</span>: <strong id="success-consumer"></strong></p>
+          <p id="success-message"></p>
+
+          <div id="upi-section" class="hidden">
+            <p class="upi-hint" data-i18n="upiScan">QR स्कैन करें या UPI ऐप खोलें</p>
+            <img id="upi-qr" alt="UPI QR" class="upi-qr" />
+            <a id="upi-link" class="btn btn-upi" target="_blank" rel="noopener" data-i18n="payNowUpi">UPI से भुगतान</a>
+            <button type="button" class="btn btn-primary" id="paid-btn" data-i18n="iHavePaid">मैंने भुगतान कर दिया</button>
+          </div>
+
+          <div class="invoice-box" id="success-bill"></div>
+          <a id="pdf-link" class="btn btn-pdf hidden" target="_blank" rel="noopener" data-i18n="downloadPdf">
+            📄 Download GST Invoice (PDF)
+          </a>
+          <a id="whatsapp-link" class="btn btn-whatsapp hidden" target="_blank" rel="noopener" data-i18n="openWhatsapp">
+            व्हाट्सऐप बिल
+          </a>
+          <button type="button" class="btn btn-primary" id="new-order-btn" style="margin-top: 1rem;" data-i18n="placeAnother">
+            दूसरा ऑर्डर
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    <span data-i18n="footer">माँ ब्रह्माणी गैस एजेंसी | गो गैस · जोबत</span><br />
+    <a href="/" style="color: var(--muted);">← Home</a>
+    ·
+    <a href="/book" style="color: var(--muted);" data-i18n="customerBooking">ग्राहक बुकिंग</a>
+    ·
+    <a href="admin.html" style="color: var(--muted);" data-i18n="admin">एडमिन</a>
+    <br />
+    <span class="footer-credit" data-i18n="developedBy">Developed by Yours Meshwork Private Limited</span>
+  </footer>
+
+  <script>window.BOOKING_MODE = 'owner';</script>
+  <script src="i18n.js"></script>
+  <script src="voice.js"></script>
+  <script src="owner-login.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

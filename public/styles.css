@@ -32,16 +32,21 @@ header {
 header { position: relative; }
 .header-logo {
   display: block;
-  margin: 0 auto 0.5rem;
-  max-width: 120px;
+  margin: 0 auto 0.75rem;
+  max-width: min(200px, 60vw);
   height: auto;
-  background: #fff;
-  border-radius: 50%;
-  padding: 6px;
 }
 header h1 { font-size: 1.4rem; font-weight: 700; }
 header p { font-size: 0.9rem; opacity: 0.95; margin-top: 0.25rem; }
 header .location { font-size: 0.8rem; opacity: 0.85; margin-top: 0.5rem; }
+
+.customer-order-note,
+.customer-success-note {
+  font-size: 0.9rem;
+  color: var(--muted);
+  margin: 0.75rem 0;
+  text-align: center;
+}
 
 .lang-toggle {
   position: absolute;
@@ -315,6 +320,7 @@ header .location { font-size: 0.8rem; opacity: 0.85; margin-top: 0.5rem; }
 .hidden { display: none !important; }
 .error { color: #c62828; font-size: 0.85rem; margin-top: 0.5rem; }
 footer { text-align: center; padding: 1rem; color: var(--muted); font-size: 0.8rem; }
+.footer-credit { display: block; margin-top: 0.5rem; font-size: 0.75rem; opacity: 0.85; }
 
 .admin-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; }
 .order-card { margin-bottom: 1rem; }
@@ -357,6 +363,14 @@ footer { text-align: center; padding: 1rem; color: var(--muted); font-size: 0.8r
   padding: 0.45rem 1rem !important;
   font-size: 0.85rem !important;
 }
+.manual-products-list {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.5rem 1rem;
+  background: #fafafa;
+  min-height: 3rem;
+}
+
 .pricing-total {
   padding: 0.65rem 0.75rem;
   background: #fff;

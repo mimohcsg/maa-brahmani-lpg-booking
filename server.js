@@ -108,6 +108,9 @@ app.get('/', (_req, res) => {
 app.get('/book', (_req, res) => {
   res.sendFile(path.join(PUBLIC_DIR, 'index.html'));
 });
+app.get('/owner', (_req, res) => {
+  res.sendFile(path.join(PUBLIC_DIR, 'owner.html'));
+});
 
 app.use(express.static(PUBLIC_DIR));
 
@@ -164,6 +167,7 @@ async function createOrderRecord({
   createdAt,
   isManualBill = false,
   sendNotification = false,
+  orderSource = 'owner',
 }) {
   const normalizedPhone = normalizePhone(phone);
   if (normalizedPhone.length !== 10) {
@@ -200,11 +204,17 @@ async function createOrderRecord({
     notes: notes?.trim() || '',
     paymentMethod: method,
     paymentStatus: method === 'cod' ? 'not_required' : 'pending',
-    status: method === 'cod' ? 'confirmed' : 'awaiting_payment',
+    status:
+      orderSource === 'customer_web'
+        ? 'pending_confirmation'
+        : method === 'cod'
+          ? 'confirmed'
+          : 'awaiting_payment',
     couponCode: bill.coupon?.code || null,
     bill,
     createdAt: billCreatedAt,
     isManualBill,
+    source: orderSource,
   };
 
   refreshCustomerBill(order);
@@ -679,12 +689,48 @@ app.post('/api/orders', async (req, res) => {
       paymentMethod,
       couponCode,
       couponSkipped,
+      customerOrder,
     } = req.body;
 
     if (!customerName?.trim()) return res.status(400).json({ error: 'Customer name is required' });
     if (!phone?.trim()) return res.status(400).json({ error: 'Phone number is required' });
     if (!address?.trim()) return res.status(400).json({ error: 'Delivery address is required' });
     if (!items?.length) return res.status(400).json({ error: 'At least one item is required' });
+
+    if (customerOrder === true) {
+      const result = await createOrderRecord({
+        customerName,
+        phone,
+        address,
+        items,
+        couponCode,
+        couponSkipped,
+        paymentMethod: 'cod',
+        deliveryPreference,
+        notes,
+        sendNotification: false,
+        orderSource: 'customer_web',
+      });
+
+      const { order } = result;
+      const itemSummary = (order.bill?.items || [])
+        .map((item) => `${item.quantity}× ${item.name}`)
+        .join(', ');
+      await notifyBusiness(
+        `New customer booking ${order.invoiceNumber}: ${order.customerName}, ${order.phone}. ${itemSummary}. Total ₹${order.bill.grandTotal}. Confirm on owner portal.`
+      );
+
+      return res.status(201).json({
+        success: true,
+        customerOrder: true,
+        order: {
+          invoiceNumber: order.invoiceNumber,
+          consumerNumber: order.consumerNumber,
+          bill: { grandTotal: order.bill.grandTotal },
+        },
+        message: 'Order request received! We will contact you on WhatsApp to confirm delivery.',
+      });
+    }
 
     const method = paymentMethod === 'cod' ? 'cod' : 'upi';
     const result = await createOrderRecord({
@@ -800,7 +846,9 @@ app.listen(PORT, async () => {
   ensureDefaultCoupons();
   await ensureLogoPng();
   console.log(`\n🔥 ${BUSINESS.name}`);
-  console.log(`   Booking app: http://localhost:${PORT}`);
+  console.log(`   Website: http://localhost:${PORT}/`);
+  console.log(`   Customer booking: http://localhost:${PORT}/book`);
+  console.log(`   Owner booking: http://localhost:${PORT}/owner`);
   console.log(`   Admin panel: http://localhost:${PORT}/admin.html`);
   console.log(`   Database: ${DB_PATH}`);
   console.log(`   UPI: ${BUSINESS.upiId || 'not configured (set UPI_ID in .env)'}\n`);

@@ -13,6 +13,7 @@ let consumerLookupTimer = null;
 let defaultCoupon = 'FreeDelivery';
 let autoCouponByProduct = { 'cylinder-19': 'NOTOBLACK' };
 const quantities = {};
+const IS_OWNER = window.BOOKING_MODE === 'owner';
 
 function getAutoCouponForCart(items) {
   if (!items?.length) return defaultCoupon;
@@ -317,7 +318,18 @@ function showSuccess(data) {
   document.getElementById('success-invoice').textContent = data.order.invoiceNumber;
   document.getElementById('success-consumer').textContent = data.order.consumerNumber || '—';
   document.getElementById('success-message').textContent = data.message;
-  document.getElementById('success-bill').textContent = data.order.billText;
+
+  const consumerRow = document.getElementById('success-consumer-row');
+  if (consumerRow) consumerRow.classList.toggle('hidden', !IS_OWNER && !data.order.consumerNumber);
+
+  if (!IS_OWNER || data.customerOrder) {
+    document.querySelectorAll('.owner-only').forEach((el) => el.classList.add('hidden'));
+    document.getElementById('upi-section')?.classList.add('hidden');
+    return;
+  }
+
+  document.getElementById('success-bill').textContent = data.order.billText || '';
+  document.getElementById('success-bill')?.classList.remove('hidden');
 
   const upiSection = document.getElementById('upi-section');
   const paidBtn = document.getElementById('paid-btn');
@@ -369,14 +381,19 @@ document.getElementById('booking-form').addEventListener('submit', async (e) => 
     address: document.getElementById('address').value,
     deliveryPreference: document.getElementById('deliveryPreference').value,
     notes: document.getElementById('notes').value,
-    paymentMethod: getPaymentMethod(),
     couponCode: couponManuallyRemoved ? null : (appliedCoupon || getAutoCouponForCart(items)),
     couponSkipped: couponManuallyRemoved,
     items,
   };
 
+  if (IS_OWNER) {
+    payload.paymentMethod = getPaymentMethod();
+  } else {
+    payload.customerOrder = true;
+  }
+
   btn.disabled = true;
-  btn.textContent = t('placingOrder');
+  btn.textContent = IS_OWNER ? t('placingOrder') : t('submittingOrder');
 
   try {
     const res = await fetch('/api/orders', {
@@ -392,11 +409,25 @@ document.getElementById('booking-form').addEventListener('submit', async (e) => 
     errEl.classList.remove('hidden');
   } finally {
     btn.disabled = false;
-    btn.textContent = t('placeOrder');
+    btn.textContent = IS_OWNER ? t('placeOrder') : t('customerPlaceOrder');
   }
 });
 
-document.getElementById('paid-btn').addEventListener('click', async () => {
+function initBookingPage() {
+  if (IS_OWNER) {
+    document.querySelectorAll('.customer-order-note, .customer-success-note').forEach((el) => {
+      el.classList.add('hidden');
+    });
+    if (!sessionStorage.getItem('ownerKey')) return;
+  } else {
+    document.getElementById('payment-card')?.classList.add('hidden');
+  }
+  loadProducts();
+}
+
+initBookingPage();
+
+document.getElementById('paid-btn')?.addEventListener('click', async () => {
   if (!currentInvoice) return;
   const btn = document.getElementById('paid-btn');
   btn.disabled = true;
@@ -412,7 +443,7 @@ document.getElementById('paid-btn').addEventListener('click', async () => {
   }
 });
 
-document.getElementById('new-order-btn').addEventListener('click', () => {
+document.getElementById('new-order-btn')?.addEventListener('click', () => {
   document.getElementById('booking-form').reset();
   resetConsumerLookup();
   currentInvoice = null;
@@ -424,5 +455,3 @@ document.getElementById('new-order-btn').addEventListener('click', () => {
   document.getElementById('success-section').classList.add('hidden');
   document.getElementById('booking-section').classList.remove('hidden');
 });
-
-loadProducts();

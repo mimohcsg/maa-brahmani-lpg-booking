@@ -91,6 +91,7 @@ async function loadOrders() {
       <div style="display:flex;justify-content:space-between;align-items:start;gap:1rem;flex-wrap:wrap;">
         <div>
           <strong>${o.invoiceNumber}</strong>
+          ${o.isManualBill ? '<span class="status status-review">Manual</span>' : ''}
           ${statusBadge(o)}
           <div class="meta">${new Date(o.createdAt).toLocaleString('en-IN')}</div>
           <div class="meta">Pay: ${o.paymentMethod?.toUpperCase()} · ${o.paymentStatus || '-'}</div>
@@ -519,6 +520,241 @@ document.getElementById('coupon-form').addEventListener('submit', async (e) => {
   loadCoupons();
 });
 
+let manualBillProducts = [];
+const manualBillQty = {};
+let manualAutoCouponByProduct = { 'cylinder-19': 'NOTOBLACK' };
+let manualDefaultCoupon = 'FREEDELIVERY';
+
+function getManualAutoCoupon(items) {
+  for (const [productId, couponCode] of Object.entries(manualAutoCouponByProduct)) {
+    if (items.some((item) => item.productId === productId && item.quantity > 0)) {
+      return couponCode;
+    }
+  }
+  return manualDefaultCoupon;
+}
+
+function todayInputDate() {
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+}
+
+function nowInputTime() {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Kolkata',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(new Date());
+  const hour = parts.find((p) => p.type === 'hour')?.value || '12';
+  const minute = parts.find((p) => p.type === 'minute')?.value || '00';
+  return `${hour}:${minute}`;
+}
+
+function getManualBillItems() {
+  return manualBillProducts
+    .filter((p) => (manualBillQty[p.id] || 0) > 0)
+    .map((p) => ({ productId: p.id, quantity: manualBillQty[p.id] }));
+}
+
+function renderManualProducts() {
+  const list = document.getElementById('manual-products-list');
+  if (!list) return;
+  if (!manualBillProducts.length) {
+    list.innerHTML = '<p class="meta">No products configured. Add products in Pricing tab.</p>';
+    return;
+  }
+  list.innerHTML = manualBillProducts.map((p) => {
+    const gst = (p.price * p.gstPercent) / 100;
+    const incl = Math.round((p.price + gst) * 100) / 100;
+    return `
+      <div class="product-row">
+        <div class="product-info">
+          <div class="name">${escHtml(p.name)}</div>
+          <div class="price meta">${fmtMoney(incl)} incl. GST</div>
+        </div>
+        <div class="qty-control">
+          <button type="button" data-manual-qty="${p.id}" data-delta="-1">−</button>
+          <span>${manualBillQty[p.id] || 0}</span>
+          <button type="button" data-manual-qty="${p.id}" data-delta="1">+</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  list.querySelectorAll('[data-manual-qty]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const id = btn.getAttribute('data-manual-qty');
+      const delta = Number(btn.getAttribute('data-delta'));
+      manualBillQty[id] = Math.max(0, (manualBillQty[id] || 0) + delta);
+      renderManualProducts();
+      refreshManualBillTotal();
+    });
+  });
+}
+
+async function refreshManualBillTotal() {
+  const totalEl = document.getElementById('manual-bill-total');
+  if (!totalEl) return;
+  const items = getManualBillItems();
+  if (!items.length) {
+    totalEl.textContent = fmtMoney(0);
+    return;
+  }
+
+  const entered = document.getElementById('manual-coupon')?.value.trim();
+  const coupon = entered || getManualAutoCoupon(items);
+  try {
+    const res = await fetch('/api/coupons/validate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: coupon, items }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Invalid coupon');
+    totalEl.textContent = fmtMoney(data.newTotal);
+  } catch {
+    let subtotal = 0;
+    let gst = 0;
+    items.forEach((item) => {
+      const p = manualBillProducts.find((x) => x.id === item.productId);
+      if (!p) return;
+      const line = p.price * item.quantity;
+      subtotal += line;
+      gst += (line * p.gstPercent) / 100;
+    });
+    totalEl.textContent = fmtMoney(subtotal + gst);
+  }
+}
+
+async function loadManualBillForm() {
+  const dateField = document.getElementById('manual-bill-date');
+  const timeField = document.getElementById('manual-bill-time');
+  if (dateField && !dateField.value) dateField.value = todayInputDate();
+  if (timeField && !timeField.value) timeField.value = nowInputTime();
+
+  const [pricingRes, productsRes] = await Promise.all([
+    fetch('/api/admin/pricing', { headers: { 'x-admin-key': adminKey } }),
+    fetch('/api/products'),
+  ]);
+  if (handleAuthError(pricingRes)) return;
+  if (!pricingRes.ok) {
+    const list = document.getElementById('manual-products-list');
+    if (list) list.innerHTML = '<p class="error">Failed to load products. Check admin login.</p>';
+    return;
+  }
+  const pricing = await pricingRes.json();
+  const productsMeta = productsRes.ok ? await productsRes.json() : {};
+  if (productsMeta.autoCouponByProduct) manualAutoCouponByProduct = productsMeta.autoCouponByProduct;
+  if (productsMeta.defaultCoupon) manualDefaultCoupon = productsMeta.defaultCoupon;
+  manualBillProducts = pricing.products || [];
+  manualBillProducts.forEach((p) => {
+    if (manualBillQty[p.id] == null) manualBillQty[p.id] = 0;
+  });
+  renderManualProducts();
+  refreshManualBillTotal();
+}
+
+async function lookupManualConsumer() {
+  const phone = document.getElementById('manual-phone')?.value.replace(/\D/g, '').slice(-10);
+  if (phone?.length !== 10) return;
+  try {
+    const res = await fetch(`/api/consumers/lookup/${phone}`);
+    const data = await res.json();
+    if (!res.ok) return;
+    const consumerField = document.getElementById('manual-consumer');
+    const nameField = document.getElementById('manual-customer-name');
+    const addressField = document.getElementById('manual-address');
+    if (data.found) {
+      if (consumerField) consumerField.value = data.consumerNumber || '';
+      if (nameField && !nameField.value.trim()) nameField.value = data.customerName || '';
+      if (addressField && !addressField.value.trim()) addressField.value = data.address || '';
+    } else if (consumerField) {
+      consumerField.value = '';
+    }
+  } catch {
+    // ignore lookup errors
+  }
+}
+
+function showManualBillError(message) {
+  const el = document.getElementById('manual-bill-error');
+  if (!el) return;
+  if (!message) {
+    el.textContent = '';
+    el.classList.add('hidden');
+    return;
+  }
+  el.textContent = message;
+  el.classList.remove('hidden');
+}
+
+document.getElementById('manual-phone')?.addEventListener('blur', lookupManualConsumer);
+document.getElementById('manual-coupon')?.addEventListener('input', refreshManualBillTotal);
+
+document.getElementById('manual-bill-form')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  showManualBillError('');
+
+  const items = getManualBillItems();
+  if (!items.length) {
+    showManualBillError('Select at least one product');
+    return;
+  }
+
+  const payload = {
+    customerName: document.getElementById('manual-customer-name').value,
+    phone: document.getElementById('manual-phone').value,
+    address: document.getElementById('manual-address').value,
+    consumerNumber: document.getElementById('manual-consumer').value.trim() || null,
+    billDate: document.getElementById('manual-bill-date').value,
+    billTime: document.getElementById('manual-bill-time').value,
+    deliveryPreference: document.getElementById('manual-delivery').value,
+    paymentMethod: document.getElementById('manual-payment').value,
+    couponCode: document.getElementById('manual-coupon').value.trim() || null,
+    notes: document.getElementById('manual-notes').value.trim(),
+    sendNotification: document.getElementById('manual-send-notification').checked,
+    items,
+  };
+
+  const btn = e.target.querySelector('button[type="submit"]');
+  btn.disabled = true;
+  btn.textContent = 'Generating...';
+
+  try {
+    const res = await fetch('/api/admin/bills', {
+      method: 'POST',
+      headers: adminHeaders(),
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (handleAuthError(res)) return;
+    if (!res.ok) throw new Error(data.error || 'Failed to create bill');
+
+    document.getElementById('manual-result-invoice').textContent = data.order.invoiceNumber;
+    document.getElementById('manual-result-total').textContent = fmtMoney(data.order.bill.grandTotal);
+    document.getElementById('manual-result-pdf').href = data.pdfUrl;
+    document.getElementById('manual-result-text').textContent = data.billText || '';
+    document.getElementById('manual-bill-result').classList.remove('hidden');
+    document.getElementById('manual-bill-result').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  } catch (err) {
+    showManualBillError(err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Generate Bill';
+  }
+});
+
+document.getElementById('manual-new-bill-btn')?.addEventListener('click', () => {
+  document.getElementById('manual-bill-form').reset();
+  document.getElementById('manual-bill-date').value = todayInputDate();
+  document.getElementById('manual-bill-time').value = nowInputTime();
+  manualBillProducts.forEach((p) => { manualBillQty[p.id] = 0; });
+  document.getElementById('manual-bill-result').classList.add('hidden');
+  showManualBillError('');
+  renderManualProducts();
+  refreshManualBillTotal();
+});
+
 document.querySelectorAll('.admin-tab').forEach((tab) => {
   tab.addEventListener('click', () => {
     document.querySelectorAll('.admin-tab').forEach((t) => t.classList.remove('active'));
@@ -530,6 +766,7 @@ document.querySelectorAll('.admin-tab').forEach((tab) => {
     if (tab.dataset.tab === 'reports') loadReports();
     if (tab.dataset.tab === 'pricing') loadPricing();
     if (tab.dataset.tab === 'coupons') loadCoupons();
+    if (tab.dataset.tab === 'manual-bill') loadManualBillForm();
   });
 });
 
