@@ -49,10 +49,15 @@ const {
   exportAccountingCsv,
   DB_PATH,
 } = require('./services/database');
+const {
+  ensureDataDir,
+  migrateLegacyDataIfNeeded,
+  warnIfEphemeralOnRender,
+  DATA_DIR,
+} = require('./services/dataPaths');
 
 const app = express();
 const PORT = process.env.PORT || 3456;
-const DATA_DIR = path.join(__dirname, 'data');
 
 const BUSINESS = {
   name: 'Maa Brahmani Gas Agency | Go Gas',
@@ -114,12 +119,10 @@ app.get('/owner', (_req, res) => {
 
 app.use(express.static(PUBLIC_DIR));
 
+migrateLegacyDataIfNeeded();
 ensureDataDir();
+warnIfEphemeralOnRender();
 initDatabase();
-
-function ensureDataDir() {
-  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-}
 
 function findOrder(invoiceNumber) {
   return dbFindOrder(invoiceNumber);
@@ -343,7 +346,13 @@ function checkAdmin(req, res) {
 }
 
 app.get('/api/health', (_req, res) => {
-  res.json({ status: 'ok', service: 'maa-brahmani-lpg-booking' });
+  res.json({
+    status: 'ok',
+    service: 'maa-brahmani-lpg-booking',
+    dataDir: DATA_DIR,
+    database: DB_PATH,
+    persistentStorage: path.resolve(DATA_DIR) !== path.resolve(path.join(__dirname, 'data')),
+  });
 });
 
 app.get('/api/consumers/lookup/:phone', (req, res) => {
@@ -851,5 +860,6 @@ app.listen(PORT, async () => {
   console.log(`   Owner booking: http://localhost:${PORT}/owner`);
   console.log(`   Admin panel: http://localhost:${PORT}/admin.html`);
   console.log(`   Database: ${DB_PATH}`);
+  console.log(`   Data folder: ${DATA_DIR}`);
   console.log(`   UPI: ${BUSINESS.upiId || 'not configured (set UPI_ID in .env)'}\n`);
 });

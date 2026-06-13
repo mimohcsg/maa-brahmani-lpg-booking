@@ -1,9 +1,16 @@
 const fs = require('fs');
 const path = require('path');
+const {
+  ensureDataDir,
+  getPricingFile,
+  getCouponsFile,
+  BUNDLED_DATA_DIR,
+} = require('./dataPaths');
 
-const DATA_DIR = path.join(__dirname, '..', 'data');
-const PRICING_FILE = path.join(DATA_DIR, 'pricing.json');
-const COUPONS_FILE = path.join(DATA_DIR, 'coupons.json');
+const PRICING_FILE = getPricingFile();
+const COUPONS_FILE = getCouponsFile();
+const SEED_PRICING_FILE = path.join(BUNDLED_DATA_DIR, 'pricing.json');
+const SEED_COUPONS_FILE = path.join(BUNDLED_DATA_DIR, 'coupons.json');
 
 const DEFAULT_COUPON_CODE = 'FREEDELIVERY';
 
@@ -25,13 +32,13 @@ const DEFAULT_PRICING = {
   ],
 };
 
-function ensureDataDir() {
-  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-}
-
-function readJson(file, fallback) {
+function readJson(file, fallback, seedFile = null) {
   ensureDataDir();
   if (!fs.existsSync(file)) {
+    if (seedFile && fs.existsSync(seedFile)) {
+      fs.copyFileSync(seedFile, file);
+      return JSON.parse(fs.readFileSync(file, 'utf8'));
+    }
     fs.writeFileSync(file, JSON.stringify(fallback, null, 2), 'utf8');
     return JSON.parse(JSON.stringify(fallback));
   }
@@ -44,7 +51,7 @@ function writeJson(file, data) {
 }
 
 function getPricing() {
-  return readJson(PRICING_FILE, DEFAULT_PRICING);
+  return readJson(PRICING_FILE, DEFAULT_PRICING, SEED_PRICING_FILE);
 }
 
 function savePricing(pricing) {
@@ -53,7 +60,7 @@ function savePricing(pricing) {
 }
 
 function getCoupons() {
-  return readJson(COUPONS_FILE, []);
+  return readJson(COUPONS_FILE, [], SEED_COUPONS_FILE);
 }
 
 function saveCoupons(coupons) {

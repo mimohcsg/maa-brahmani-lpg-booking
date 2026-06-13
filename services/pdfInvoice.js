@@ -2,6 +2,7 @@ const PDFDocument = require('pdfkit');
 const fs = require('fs');
 const path = require('path');
 const { ensureLogoPng, getLogoPngPath } = require('./branding');
+const { getInvoicesDir, ensureDataDir } = require('./dataPaths');
 const {
   getDeliveryChargeOriginal,
   getCouponDiscountLines,
@@ -10,7 +11,7 @@ const {
   formatBillProductName,
 } = require('./billFormat');
 
-const INVOICES_DIR = path.join(__dirname, '..', 'data', 'invoices');
+const INVOICES_DIR = () => getInvoicesDir();
 
 const SAC_CODES = {
   'domestic-14': '73110010',
@@ -32,11 +33,11 @@ function fmtDate(iso) {
 }
 
 function ensureInvoicesDir() {
-  if (!fs.existsSync(INVOICES_DIR)) fs.mkdirSync(INVOICES_DIR, { recursive: true });
+  ensureDataDir();
 }
 
 function getInvoicePdfPath(invoiceNumber) {
-  return path.join(INVOICES_DIR, `${invoiceNumber}.pdf`);
+  return path.join(INVOICES_DIR(), `${invoiceNumber}.pdf`);
 }
 
 function invoicePdfExists(invoiceNumber) {

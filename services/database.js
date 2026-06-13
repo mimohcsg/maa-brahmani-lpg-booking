@@ -1,11 +1,15 @@
 const fs = require('fs');
 const path = require('path');
 const Database = require('better-sqlite3');
+const {
+  ensureDataDir,
+  getDbPath,
+  BUNDLED_DATA_DIR,
+} = require('./dataPaths');
 
-const DATA_DIR = path.join(__dirname, '..', 'data');
-const DB_PATH = process.env.DATABASE_PATH || path.join(DATA_DIR, 'booking.db');
-const ORDERS_JSON = path.join(DATA_DIR, 'orders.json');
-const CONSUMERS_JSON = path.join(DATA_DIR, 'consumers.json');
+const ORDERS_JSON = path.join(BUNDLED_DATA_DIR, 'orders.json');
+const CONSUMERS_JSON = path.join(BUNDLED_DATA_DIR, 'consumers.json');
+const DB_PATH = getDbPath();
 
 let db;
 
@@ -25,8 +29,8 @@ function parseConsumerSeq(consumerNumber) {
   return match ? parseInt(match[1], 10) : null;
 }
 
-function ensureDataDir() {
-  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+function ensureDataDirLocal() {
+  ensureDataDir();
 }
 
 function getMeta(key, fallback = null) {
@@ -252,7 +256,7 @@ function recalculateCustomerStats() {
 }
 
 function initDatabase() {
-  ensureDataDir();
+  ensureDataDirLocal();
   db = new Database(DB_PATH);
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
