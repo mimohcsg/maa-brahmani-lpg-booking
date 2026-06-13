@@ -133,11 +133,17 @@ async function generateInvoicePdf(order, business) {
       if (y > 680) { doc.addPage(); y = 40; }
       doc.fillColor('#000');
       doc.text(String(rowNum++), cols[0].x + 2, y + 4, { width: cols[0].w });
-      doc.text(formatBillProductName(item.name), cols[1].x + 2, y + 4, { width: cols[1].w });
+      doc.text(
+        order.isManualBill ? item.name : formatBillProductName(item.name),
+        cols[1].x + 2,
+        y + 4,
+        { width: cols[1].w }
+      );
       doc.text(SAC_CODES[item.productId] || '73110010', cols[2].x + 2, y + 4, { width: cols[2].w });
       doc.text(String(item.quantity), cols[3].x + 2, y + 4, { width: cols[3].w });
       doc.text('Kg', cols[4].x + 2, y + 4, { width: cols[4].w });
-      doc.text(fmtMoney(getLineAmountPlusGst(item)), cols[5].x + 2, y + 4, {
+      const lineAmount = order.isManualBill ? item.subtotal : getLineAmountPlusGst(item);
+      doc.text(fmtMoney(lineAmount), cols[5].x + 2, y + 4, {
         width: cols[5].w,
         align: 'right',
       });
@@ -145,8 +151,10 @@ async function generateInvoicePdf(order, business) {
       y += rowH;
     });
 
-    // Delivery row (flat charge, no GST on delivery)
-    const deliveryAmount = getDeliveryChargeOriginal(bill);
+    // Transport / delivery row
+    const deliveryAmount = order.isManualBill
+      ? (bill.transportCharge ?? bill.deliveryCharge ?? 0)
+      : getDeliveryChargeOriginal(bill);
     doc.text(String(rowNum), cols[0].x + 2, y + 4);
     doc.text('Transport / Delivery Charge', cols[1].x + 2, y + 4, { width: cols[1].w });
     doc.text('-', cols[2].x + 2, y + 4);
@@ -181,14 +189,28 @@ async function generateInvoicePdf(order, business) {
 
     // Totals (right aligned box)
     const totalsX = 340;
-    const deliveryAmountTotal = getDeliveryChargeOriginal(bill);
+    const deliveryAmountTotal = order.isManualBill
+      ? (bill.transportCharge ?? bill.deliveryCharge ?? 0)
+      : getDeliveryChargeOriginal(bill);
     doc.fontSize(9).font('Helvetica');
-    doc.text('Sub Total (incl. GST)', totalsX, y);
-    doc.text(`Rs. ${fmtMoney(getItemsAmountPlusGst(bill))}`, 460, y, { width: 95, align: 'right' });
-    y += 14;
-    doc.text('Delivery Charges', totalsX, y);
-    doc.text(`Rs. ${fmtMoney(deliveryAmountTotal)}`, 460, y, { width: 95, align: 'right' });
-    y += 14;
+    if (order.isManualBill) {
+      doc.text('Sub Total (excl. GST)', totalsX, y);
+      doc.text(`Rs. ${fmtMoney(bill.subtotal)}`, 460, y, { width: 95, align: 'right' });
+      y += 14;
+      doc.text('GST', totalsX, y);
+      doc.text(`Rs. ${fmtMoney(bill.itemsGst ?? bill.totalGst ?? 0)}`, 460, y, { width: 95, align: 'right' });
+      y += 14;
+      doc.text('Transport Charge', totalsX, y);
+      doc.text(`Rs. ${fmtMoney(deliveryAmountTotal)}`, 460, y, { width: 95, align: 'right' });
+      y += 14;
+    } else {
+      doc.text('Sub Total (incl. GST)', totalsX, y);
+      doc.text(`Rs. ${fmtMoney(getItemsAmountPlusGst(bill))}`, 460, y, { width: 95, align: 'right' });
+      y += 14;
+      doc.text('Delivery Charges', totalsX, y);
+      doc.text(`Rs. ${fmtMoney(deliveryAmountTotal)}`, 460, y, { width: 95, align: 'right' });
+      y += 14;
+    }
 
     getCouponDiscountLines(bill).forEach((line) => {
       doc.fillColor('#2e7d32').text(line.label, totalsX, y);

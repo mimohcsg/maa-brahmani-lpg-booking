@@ -23,6 +23,7 @@ const {
   validateCoupon,
   incrementCouponUsage,
   calculateBill,
+  calculateManualBill,
   ensureDefaultCoupons,
   getAutoCouponCode,
   resolveOrderCoupon,
@@ -175,6 +176,7 @@ async function createOrderRecord({
   isManualBill = false,
   sendNotification = false,
   orderSource = 'owner',
+  transportCharge = null,
 }) {
   const normalizedPhone = normalizePhone(phone);
   if (normalizedPhone.length !== 10) {
@@ -196,7 +198,9 @@ async function createOrderRecord({
 
   const pricing = getPricing();
   const effectiveCoupon = resolveOrderCoupon(items, couponCode, Boolean(couponSkipped));
-  const bill = calculateBill(items, pricing, effectiveCoupon);
+  const bill = isManualBill
+    ? calculateManualBill(items, pricing, { transportCharge, couponCode: effectiveCoupon })
+    : calculateBill(items, pricing, effectiveCoupon);
   const billCreatedAt = createdAt || new Date().toISOString();
   const invoiceNumber = generateInvoiceNumberForDate(billCreatedAt);
 
@@ -303,13 +307,24 @@ function buildBillText(order, business) {
     order.consumerNumber ? `Consumer No: ${order.consumerNumber}` : null,
     '',
     '*Order Details*',
-    ...order.bill.lineItems.map((i) => {
-      const lineAmount = getLineAmountPlusGst(i);
-      return `${formatBillProductName(i.name)} x ${i.quantity}    ₹${lineAmount.toFixed(2)}`;
-    }),
-    `Delivery Charges            ₹${getDeliveryChargeOriginal(order.bill).toFixed(2)}`,
+    ...(order.isManualBill
+      ? order.bill.lineItems.map(
+          (i) => `${i.name} x ${i.quantity}    ₹${i.subtotal.toFixed(2)}`
+        )
+      : order.bill.lineItems.map((i) => {
+          const lineAmount = getLineAmountPlusGst(i);
+          return `${formatBillProductName(i.name)} x ${i.quantity}    ₹${lineAmount.toFixed(2)}`;
+        })),
+    order.isManualBill
+      ? `Transport Charge              ₹${(order.bill.transportCharge ?? order.bill.deliveryCharge ?? 0).toFixed(2)}`
+      : `Delivery Charges            ₹${getDeliveryChargeOriginal(order.bill).toFixed(2)}`,
+    order.isManualBill
+      ? `GST                           ₹${(order.bill.itemsGst ?? order.bill.totalGst ?? 0).toFixed(2)}`
+      : null,
     '----------------------------',
-    `Subtotal:                   ₹${getItemsAmountPlusGst(order.bill).toFixed(2)}`,
+    order.isManualBill
+      ? null
+      : `Subtotal:                   ₹${getItemsAmountPlusGst(order.bill).toFixed(2)}`,
     ...getCouponDiscountLines(order.bill).map(
       (line) => `${line.label}:`.padEnd(28) + `-₹${line.amount.toFixed(2)}`
     ),
@@ -633,6 +648,23 @@ app.get('/api/orders/:invoiceNumber', (req, res) => {
   res.json({ ...order, pdfUrl: getPdfPublicUrl(order.invoiceNumber) });
 });
 
+app.post('/api/admin/bills/preview', (req, res) => {
+  if (!checkAdmin(req, res)) return;
+  try {
+    const { items, transportCharge, couponCode, couponSkipped } = req.body;
+    if (!items?.length) return res.status(400).json({ error: 'At least one item is required' });
+    const pricing = getPricing();
+    const effectiveCoupon = resolveOrderCoupon(items, couponCode, Boolean(couponSkipped));
+    const bill = calculateManualBill(items, pricing, {
+      transportCharge,
+      couponCode: effectiveCoupon,
+    });
+    res.json(bill);
+  } catch (err) {
+    res.status(400).json({ error: err.message || 'Failed to preview bill' });
+  }
+});
+
 app.post('/api/admin/bills', async (req, res) => {
   if (!checkAdmin(req, res)) return;
   try {
@@ -650,6 +682,7 @@ app.post('/api/admin/bills', async (req, res) => {
       couponSkipped,
       consumerNumber,
       sendNotification,
+      transportCharge,
     } = req.body;
 
     if (!customerName?.trim()) return res.status(400).json({ error: 'Customer name is required' });
@@ -672,6 +705,7 @@ app.post('/api/admin/bills', async (req, res) => {
       createdAt,
       isManualBill: true,
       sendNotification: Boolean(sendNotification),
+      transportCharge,
     });
 
     res.status(201).json({

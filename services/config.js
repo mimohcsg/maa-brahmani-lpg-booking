@@ -292,6 +292,90 @@ function calculateBill(items, pricing, couponCode = null) {
   };
 }
 
+function calculateManualBill(items, pricing, options = {}) {
+  const { products } = pricing;
+  const transportChargeOriginal =
+    options.transportCharge != null && options.transportCharge !== ''
+      ? Math.max(0, Number(options.transportCharge) || 0)
+      : (pricing.deliveryCharge || 0);
+  const couponCode = options.couponCode || null;
+
+  const lineItems = items.map((item) => {
+    const product = products.find((p) => p.id === item.productId);
+    if (!product) throw new Error(`Invalid product: ${item.productId}`);
+    const qty = Math.max(1, Number(item.quantity) || 1);
+    const unitPrice =
+      item.unitPrice != null && item.unitPrice !== ''
+        ? Math.max(0, Number(item.unitPrice) || 0)
+        : product.price;
+    const gstPercent =
+      item.gstPercent != null && item.gstPercent !== ''
+        ? Math.max(0, Number(item.gstPercent) || 0)
+        : product.gstPercent;
+    const subtotal = Math.round(unitPrice * qty * 100) / 100;
+    const gst = Math.round(((subtotal * gstPercent) / 100) * 100) / 100;
+    return {
+      productId: product.id,
+      name: product.name,
+      unitPrice,
+      quantity: qty,
+      gstPercent,
+      subtotal,
+      gst,
+      total: Math.round((subtotal + gst) * 100) / 100,
+    };
+  });
+
+  const itemsSubtotal = lineItems.reduce((s, i) => s + i.subtotal, 0);
+  const itemsGst = lineItems.reduce((s, i) => s + i.gst, 0);
+  let effectiveTransport = transportChargeOriginal;
+  const preDiscountTotal = itemsSubtotal + itemsGst + transportChargeOriginal;
+
+  let discount = 0;
+  let coupon = null;
+  let freeDelivery = false;
+
+  if (couponCode) {
+    const result = validateCoupon(couponCode, preDiscountTotal, items);
+    if (!result.valid) throw new Error(result.error);
+    coupon = result.coupon;
+    if (result.freeDelivery || isFreeDeliveryCoupon(coupon)) {
+      freeDelivery = true;
+      effectiveTransport = 0;
+    } else {
+      discount = result.discount;
+    }
+  }
+
+  const transportSavings = freeDelivery ? transportChargeOriginal : 0;
+
+  const grandTotal = Math.max(
+    0,
+    Math.round((itemsSubtotal + itemsGst + effectiveTransport - discount) * 100) / 100
+  );
+
+  return {
+    lineItems,
+    deliveryCharge: effectiveTransport,
+    deliveryChargeOriginal: transportChargeOriginal,
+    transportCharge: effectiveTransport,
+    transportChargeOriginal,
+    deliveryGst: 0,
+    deliveryGstPercent: 0,
+    subtotal: itemsSubtotal,
+    itemsGst,
+    totalGst: itemsGst,
+    preDiscountTotal: Math.round(preDiscountTotal * 100) / 100,
+    discount,
+    coupon,
+    freeDelivery,
+    deliverySavings: transportSavings,
+    transportSavings,
+    manualBill: true,
+    grandTotal,
+  };
+}
+
 module.exports = {
   getPricing,
   savePricing,
@@ -301,6 +385,7 @@ module.exports = {
   validateCoupon,
   incrementCouponUsage,
   calculateBill,
+  calculateManualBill,
   ensureDefaultCoupons,
   getAutoCouponCode,
   resolveOrderCoupon,

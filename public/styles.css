@@ -371,6 +371,48 @@ footer { text-align: center; padding: 1rem; color: var(--muted); font-size: 0.8r
   min-height: 3rem;
 }
 
+.manual-product-row {
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.manual-price-fields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.75rem;
+}
+
+.manual-field-label {
+  font-size: 0.75rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.manual-price-input,
+.manual-gst-input {
+  width: 5.5rem;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.85rem;
+}
+
+.manual-bill-summary .bill-line {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.manual-bill-summary .bill-line.total {
+  font-weight: 700;
+  font-size: 1.05rem;
+  color: var(--go-red);
+  border-bottom: none;
+  padding-top: 0.5rem;
+}
+
 .pricing-total {
   padding: 0.65rem 0.75rem;
   background: #fff;

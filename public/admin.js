@@ -522,8 +522,11 @@ document.getElementById('coupon-form').addEventListener('submit', async (e) => {
 
 let manualBillProducts = [];
 const manualBillQty = {};
+const manualBillPrices = {};
+const manualBillGstPercent = {};
 let manualAutoCouponByProduct = { 'cylinder-19': 'NOTOBLACK' };
 let manualDefaultCoupon = 'FREEDELIVERY';
+let manualDefaultTransport = 50;
 
 function getManualAutoCoupon(items) {
   for (const [productId, couponCode] of Object.entries(manualAutoCouponByProduct)) {
@@ -553,7 +556,19 @@ function nowInputTime() {
 function getManualBillItems() {
   return manualBillProducts
     .filter((p) => (manualBillQty[p.id] || 0) > 0)
-    .map((p) => ({ productId: p.id, quantity: manualBillQty[p.id] }));
+    .map((p) => ({
+      productId: p.id,
+      quantity: manualBillQty[p.id],
+      unitPrice: manualBillPrices[p.id] ?? p.price,
+      gstPercent: manualBillGstPercent[p.id] ?? p.gstPercent,
+    }));
+}
+
+function getManualTransportCharge() {
+  const el = document.getElementById('manual-transport-charge');
+  if (!el) return manualDefaultTransport;
+  const val = el.value.trim();
+  return val === '' ? manualDefaultTransport : Math.max(0, Number(val) || 0);
 }
 
 function renderManualProducts() {
@@ -564,17 +579,25 @@ function renderManualProducts() {
     return;
   }
   list.innerHTML = manualBillProducts.map((p) => {
-    const gst = (p.price * p.gstPercent) / 100;
-    const incl = Math.round((p.price + gst) * 100) / 100;
+    const price = manualBillPrices[p.id] ?? p.price;
+    const gstPct = manualBillGstPercent[p.id] ?? p.gstPercent;
+    const qty = manualBillQty[p.id] || 0;
+    const lineGst = qty > 0 ? ((price * qty * gstPct) / 100) : 0;
     return `
-      <div class="product-row">
+      <div class="product-row manual-product-row">
         <div class="product-info">
           <div class="name">${escHtml(p.name)}</div>
-          <div class="price meta">${fmtMoney(incl)} incl. GST</div>
+          <div class="price meta">GST ${gstPct}% · line GST ${fmtMoney(lineGst)}</div>
+        </div>
+        <div class="manual-price-fields">
+          <label class="manual-field-label">Rate ₹</label>
+          <input type="number" class="manual-price-input" data-manual-price="${p.id}" min="0" step="0.01" value="${price}" />
+          <label class="manual-field-label">GST %</label>
+          <input type="number" class="manual-gst-input" data-manual-gst="${p.id}" min="0" step="0.01" value="${gstPct}" />
         </div>
         <div class="qty-control">
           <button type="button" data-manual-qty="${p.id}" data-delta="-1">−</button>
-          <span>${manualBillQty[p.id] || 0}</span>
+          <span>${qty}</span>
           <button type="button" data-manual-qty="${p.id}" data-delta="1">+</button>
         </div>
       </div>
@@ -590,39 +613,80 @@ function renderManualProducts() {
       refreshManualBillTotal();
     });
   });
+
+  list.querySelectorAll('[data-manual-price]').forEach((input) => {
+    input.addEventListener('input', () => {
+      manualBillPrices[input.getAttribute('data-manual-price')] = Number(input.value) || 0;
+      refreshManualBillTotal();
+    });
+  });
+
+  list.querySelectorAll('[data-manual-gst]').forEach((input) => {
+    input.addEventListener('input', () => {
+      manualBillGstPercent[input.getAttribute('data-manual-gst')] = Number(input.value) || 0;
+      refreshManualBillTotal();
+    });
+  });
 }
 
 async function refreshManualBillTotal() {
   const totalEl = document.getElementById('manual-bill-total');
+  const subtotalEl = document.getElementById('manual-subtotal');
+  const gstEl = document.getElementById('manual-gst');
+  const transportEl = document.getElementById('manual-transport-display');
+  const discountRow = document.getElementById('manual-discount-row');
+  const discountEl = document.getElementById('manual-discount');
   if (!totalEl) return;
+
   const items = getManualBillItems();
+  const transportCharge = getManualTransportCharge();
+
   if (!items.length) {
-    totalEl.textContent = fmtMoney(0);
+    if (subtotalEl) subtotalEl.textContent = fmtMoney(0);
+    if (gstEl) gstEl.textContent = fmtMoney(0);
+    if (transportEl) transportEl.textContent = fmtMoney(transportCharge);
+    if (discountRow) discountRow.classList.add('hidden');
+    totalEl.textContent = fmtMoney(transportCharge);
     return;
   }
 
   const entered = document.getElementById('manual-coupon')?.value.trim();
   const coupon = entered || getManualAutoCoupon(items);
+
   try {
-    const res = await fetch('/api/coupons/validate', {
+    const res = await fetch('/api/admin/bills/preview', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code: coupon, items }),
+      headers: adminHeaders(),
+      body: JSON.stringify({ items, transportCharge, couponCode: coupon }),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Invalid coupon');
-    totalEl.textContent = fmtMoney(data.newTotal);
+    const bill = await res.json();
+    if (!res.ok) throw new Error(bill.error || 'Preview failed');
+
+    if (subtotalEl) subtotalEl.textContent = fmtMoney(bill.subtotal);
+    if (gstEl) gstEl.textContent = fmtMoney(bill.itemsGst ?? bill.totalGst ?? 0);
+    if (transportEl) transportEl.textContent = fmtMoney(bill.transportCharge ?? bill.deliveryCharge ?? 0);
+    if (bill.discount > 0 || bill.freeDelivery) {
+      discountRow?.classList.remove('hidden');
+      if (discountEl) {
+        const savings = bill.discount + (bill.transportSavings || bill.deliverySavings || 0);
+        discountEl.textContent = `-₹${savings.toFixed(2)}`;
+      }
+    } else {
+      discountRow?.classList.add('hidden');
+    }
+    totalEl.textContent = fmtMoney(bill.grandTotal);
   } catch {
     let subtotal = 0;
     let gst = 0;
     items.forEach((item) => {
-      const p = manualBillProducts.find((x) => x.id === item.productId);
-      if (!p) return;
-      const line = p.price * item.quantity;
-      subtotal += line;
-      gst += (line * p.gstPercent) / 100;
+      subtotal += item.unitPrice * item.quantity;
+      gst += (item.unitPrice * item.quantity * item.gstPercent) / 100;
     });
-    totalEl.textContent = fmtMoney(subtotal + gst);
+    if (subtotalEl) subtotalEl.textContent = fmtMoney(subtotal);
+    if (gstEl) gstEl.textContent = fmtMoney(gst);
+    if (transportEl) transportEl.textContent = fmtMoney(transportCharge);
+    if (discountRow) discountRow.classList.add('hidden');
+    totalEl.textContent = fmtMoney(subtotal + gst + transportCharge);
   }
 }
 
@@ -647,8 +711,15 @@ async function loadManualBillForm() {
   if (productsMeta.autoCouponByProduct) manualAutoCouponByProduct = productsMeta.autoCouponByProduct;
   if (productsMeta.defaultCoupon) manualDefaultCoupon = productsMeta.defaultCoupon;
   manualBillProducts = pricing.products || [];
+  manualDefaultTransport = pricing.deliveryCharge ?? 50;
+  const transportField = document.getElementById('manual-transport-charge');
+  if (transportField && !transportField.dataset.touched) {
+    transportField.value = manualDefaultTransport;
+  }
   manualBillProducts.forEach((p) => {
     if (manualBillQty[p.id] == null) manualBillQty[p.id] = 0;
+    if (manualBillPrices[p.id] == null) manualBillPrices[p.id] = p.price;
+    if (manualBillGstPercent[p.id] == null) manualBillGstPercent[p.id] = p.gstPercent;
   });
   renderManualProducts();
   refreshManualBillTotal();
@@ -690,6 +761,10 @@ function showManualBillError(message) {
 
 document.getElementById('manual-phone')?.addEventListener('blur', lookupManualConsumer);
 document.getElementById('manual-coupon')?.addEventListener('input', refreshManualBillTotal);
+document.getElementById('manual-transport-charge')?.addEventListener('input', (e) => {
+  e.target.dataset.touched = '1';
+  refreshManualBillTotal();
+});
 
 document.getElementById('manual-bill-form')?.addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -712,6 +787,7 @@ document.getElementById('manual-bill-form')?.addEventListener('submit', async (e
     paymentMethod: document.getElementById('manual-payment').value,
     couponCode: document.getElementById('manual-coupon').value.trim() || null,
     notes: document.getElementById('manual-notes').value.trim(),
+    transportCharge: getManualTransportCharge(),
     sendNotification: document.getElementById('manual-send-notification').checked,
     items,
   };
@@ -748,7 +824,16 @@ document.getElementById('manual-new-bill-btn')?.addEventListener('click', () => 
   document.getElementById('manual-bill-form').reset();
   document.getElementById('manual-bill-date').value = todayInputDate();
   document.getElementById('manual-bill-time').value = nowInputTime();
-  manualBillProducts.forEach((p) => { manualBillQty[p.id] = 0; });
+  manualBillProducts.forEach((p) => {
+    manualBillQty[p.id] = 0;
+    manualBillPrices[p.id] = p.price;
+    manualBillGstPercent[p.id] = p.gstPercent;
+  });
+  const transportField = document.getElementById('manual-transport-charge');
+  if (transportField) {
+    transportField.value = manualDefaultTransport;
+    delete transportField.dataset.touched;
+  }
   document.getElementById('manual-bill-result').classList.add('hidden');
   showManualBillError('');
   renderManualProducts();
