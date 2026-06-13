@@ -47,13 +47,14 @@ const {
   exportOrdersCsv,
   exportCustomersCsv,
   exportAccountingCsv,
-  DB_PATH,
 } = require('./services/database');
 const {
   ensureDataDir,
   migrateLegacyDataIfNeeded,
   warnIfEphemeralOnRender,
   DATA_DIR,
+  DB_PATH,
+  IS_PERSISTENT,
 } = require('./services/dataPaths');
 
 const app = express();
@@ -351,7 +352,7 @@ app.get('/api/health', (_req, res) => {
     service: 'maa-brahmani-lpg-booking',
     dataDir: DATA_DIR,
     database: DB_PATH,
-    persistentStorage: path.resolve(DATA_DIR) !== path.resolve(path.join(__dirname, 'data')),
+    persistentStorage: IS_PERSISTENT,
   });
 });
 

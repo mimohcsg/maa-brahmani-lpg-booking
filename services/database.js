@@ -3,13 +3,12 @@ const path = require('path');
 const Database = require('better-sqlite3');
 const {
   ensureDataDir,
-  getDbPath,
+  DB_PATH,
   BUNDLED_DATA_DIR,
 } = require('./dataPaths');
 
 const ORDERS_JSON = path.join(BUNDLED_DATA_DIR, 'orders.json');
 const CONSUMERS_JSON = path.join(BUNDLED_DATA_DIR, 'consumers.json');
-const DB_PATH = getDbPath();
 
 let db;
 

@@ -2,21 +2,15 @@ services:
   - type: web
     name: maa-brahmani-lpg-booking
     runtime: node
-    plan: starter
+    plan: free
     buildCommand: npm install
     startCommand: npm start
     healthCheckPath: /api/health
-    disk:
-      name: lpg-booking-data
-      mountPath: /var/data
-      sizeGB: 1
     envVars:
       - key: NODE_ENV
         value: production
-      - key: DATA_DIR
-        value: /var/data
-      - key: DATABASE_PATH
-        value: /var/data/booking.db
+      # Optional — attach a 1GB Render disk at /var/data (Starter plan), then set:
+      # DATA_DIR=/var/data  and  DATABASE_PATH=/var/data/booking.db
       - key: UPI_ID
         sync: false
       - key: UPI_PAYEE_NAME
@@ -24,7 +18,7 @@ services:
       - key: BUSINESS_PHONE
         sync: false
       - key: ADMIN_KEY
-        generateValue: true
+        sync: false
       - key: GSTIN
         value: 23AABCY3737E1ZJ
       - key: BUSINESS_EMAIL

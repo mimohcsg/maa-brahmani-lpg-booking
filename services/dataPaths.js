@@ -4,23 +4,50 @@ const path = require('path');
 const PROJECT_ROOT = path.join(__dirname, '..');
 const BUNDLED_DATA_DIR = path.join(PROJECT_ROOT, 'data');
 
-function resolveDataDir() {
-  const configured = process.env.DATA_DIR?.trim();
-  if (configured) return path.resolve(configured);
-
-  // Render: use mounted persistent disk (see render.yaml)
-  if (process.env.RENDER) return '/var/data';
-
-  return BUNDLED_DATA_DIR;
+function canUseDir(dir) {
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    const probe = path.join(dir, '.write-probe');
+    fs.writeFileSync(probe, 'ok', 'utf8');
+    fs.unlinkSync(probe);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
-const DATA_DIR = resolveDataDir();
+function resolveStoragePaths() {
+  const configuredDataDir = process.env.DATA_DIR?.trim();
+  const configuredDb = process.env.DATABASE_PATH?.trim();
 
-function getDbPath() {
-  const configured = process.env.DATABASE_PATH?.trim();
-  if (configured) return path.resolve(configured);
-  return path.join(DATA_DIR, 'booking.db');
+  if (configuredDataDir) {
+    const resolved = path.resolve(configuredDataDir);
+    if (canUseDir(resolved)) {
+      return {
+        dataDir: resolved,
+        dbPath: configuredDb ? path.resolve(configuredDb) : path.join(resolved, 'booking.db'),
+        persistent: resolved !== path.resolve(BUNDLED_DATA_DIR),
+      };
+    }
+    console.warn('');
+    console.warn(`⚠️  DATA_DIR (${configuredDataDir}) is not writable — is the Render disk attached?`);
+    console.warn('   Falling back to ./data for now. Orders will reset on redeploy until disk is ready.');
+    console.warn('');
+  }
+
+  const dataDir = BUNDLED_DATA_DIR;
+  canUseDir(dataDir);
+  return {
+    dataDir,
+    dbPath: path.join(dataDir, 'booking.db'),
+    persistent: false,
+  };
 }
+
+const storage = resolveStoragePaths();
+const DATA_DIR = storage.dataDir;
+const DB_PATH = storage.dbPath;
+const IS_PERSISTENT = storage.persistent;
 
 function getInvoicesDir() {
   return path.join(DATA_DIR, 'invoices');
@@ -80,39 +107,23 @@ function migrateLegacyDataIfNeeded() {
 }
 
 function warnIfEphemeralOnRender() {
-  if (!process.env.RENDER) return;
+  if (!process.env.RENDER || IS_PERSISTENT) return;
 
-  const deployPath = path.join(PROJECT_ROOT, 'data');
-  const resolvedData = path.resolve(DATA_DIR);
-  const insideDeployTree = resolvedData.startsWith(path.resolve(PROJECT_ROOT));
-
-  if (insideDeployTree) {
-    console.warn('');
-    console.warn('⚠️  DATA_DIR is inside the app folder — orders will be LOST on every deploy.');
-    console.warn('   Set DATA_DIR=/var/data and attach a Render persistent disk (Starter plan).');
-    console.warn('');
-    return;
-  }
-
-  try {
-    const probe = path.join(DATA_DIR, '.write-probe');
-    fs.writeFileSync(probe, 'ok', 'utf8');
-    fs.unlinkSync(probe);
-  } catch (err) {
-    console.warn('');
-    console.warn(`⚠️  Cannot write to DATA_DIR (${DATA_DIR}): ${err.message}`);
-    console.warn('   Attach a persistent disk mounted at /var/data in the Render dashboard.');
-    console.warn('');
-  }
+  console.warn('');
+  console.warn('⚠️  Using temporary storage — orders will be LOST on every deploy.');
+  console.warn('   To keep data: upgrade to Starter, add a 1GB disk at /var/data, set DATA_DIR=/var/data');
+  console.warn('');
 }
 
 module.exports = {
   DATA_DIR,
+  DB_PATH,
+  IS_PERSISTENT,
   BUNDLED_DATA_DIR,
   ensureDataDir,
   migrateLegacyDataIfNeeded,
   warnIfEphemeralOnRender,
-  getDbPath,
+  getDbPath: () => DB_PATH,
   getInvoicesDir,
   getPricingFile,
   getCouponsFile,
