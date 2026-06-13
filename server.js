@@ -100,7 +100,16 @@ function serveInvoicePdf(order, res) {
 
 app.use(cors());
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
+
+const PUBLIC_DIR = path.join(__dirname, 'public');
+app.get('/', (_req, res) => {
+  res.sendFile(path.join(PUBLIC_DIR, 'home.html'));
+});
+app.get('/book', (_req, res) => {
+  res.sendFile(path.join(PUBLIC_DIR, 'index.html'));
+});
+
+app.use(express.static(PUBLIC_DIR));
 
 ensureDataDir();
 initDatabase();
@@ -117,10 +126,122 @@ function updateOrder(invoiceNumber, updates) {
   return dbUpdateOrder(invoiceNumber, updates);
 }
 
+function ymdFromDate(dateInput) {
+  return new Date(dateInput).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }).replace(/-/g, '');
+}
+
+function generateInvoiceNumberForDate(dateInput = new Date()) {
+  const ymd = ymdFromDate(dateInput);
+  const dayCount = countOrdersForDate(ymd) + 1;
+  return `MBG-${ymd}-${String(dayCount).padStart(3, '0')}`;
+}
+
 function generateInvoiceNumber() {
-  const ymd = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-  const todayCount = countOrdersForDate(ymd) + 1;
-  return `MBG-${ymd}-${String(todayCount).padStart(3, '0')}`;
+  return generateInvoiceNumberForDate(new Date());
+}
+
+function parseBillDateTime(dateStr, timeStr) {
+  if (!dateStr?.trim()) return new Date().toISOString();
+  const time = timeStr?.trim() || '12:00';
+  const parsed = new Date(`${dateStr.trim()}T${time}:00+05:30`);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error('Invalid bill date or time');
+  }
+  return parsed.toISOString();
+}
+
+async function createOrderRecord({
+  customerName,
+  phone,
+  address,
+  items,
+  couponCode,
+  couponSkipped,
+  paymentMethod,
+  deliveryPreference,
+  notes,
+  consumerNumberOverride,
+  createdAt,
+  isManualBill = false,
+  sendNotification = false,
+}) {
+  const normalizedPhone = normalizePhone(phone);
+  if (normalizedPhone.length !== 10) {
+    throw new Error('Enter a valid 10-digit WhatsApp number');
+  }
+
+  let consumer = resolveConsumer(normalizedPhone, {
+    customerName: customerName.trim(),
+    address: address.trim(),
+  });
+  if (consumerNumberOverride?.trim()) {
+    consumer = { ...consumer, consumerNumber: consumerNumberOverride.trim() };
+  }
+
+  const method = paymentMethod === 'upi' ? 'upi' : 'cod';
+  if (method === 'upi' && !BUSINESS.upiId) {
+    throw new Error('UPI payment is not configured. Choose Cash on Delivery.');
+  }
+
+  const pricing = getPricing();
+  const effectiveCoupon = resolveOrderCoupon(items, couponCode, Boolean(couponSkipped));
+  const bill = calculateBill(items, pricing, effectiveCoupon);
+  const billCreatedAt = createdAt || new Date().toISOString();
+  const invoiceNumber = generateInvoiceNumberForDate(billCreatedAt);
+
+  const order = {
+    id: uuidv4(),
+    invoiceNumber,
+    customerName: customerName.trim(),
+    phone: normalizedPhone,
+    address: address.trim(),
+    consumerNumber: consumer.consumerNumber,
+    deliveryPreference: deliveryPreference || 'Standard (1-2 days)',
+    notes: notes?.trim() || '',
+    paymentMethod: method,
+    paymentStatus: method === 'cod' ? 'not_required' : 'pending',
+    status: method === 'cod' ? 'confirmed' : 'awaiting_payment',
+    couponCode: bill.coupon?.code || null,
+    bill,
+    createdAt: billCreatedAt,
+    isManualBill,
+  };
+
+  refreshCustomerBill(order);
+
+  if (bill.coupon) incrementCouponUsage(bill.coupon.code);
+
+  await ensureOrderPdf(order);
+  const pdfUrl = getPdfPublicUrl(invoiceNumber);
+  order.pdfUrl = pdfUrl;
+
+  let upi = null;
+  if (method === 'upi') {
+    upi = await buildUpiPayment({
+      vpa: BUSINESS.upiId,
+      payeeName: BUSINESS.upiName,
+      amount: bill.grandTotal,
+      invoiceNumber,
+    });
+    order.upi = upi;
+  }
+
+  saveOrder(order);
+  refreshCustomerBill(order);
+  updateOrder(invoiceNumber, { billText: order.billText, pdfUrl });
+
+  let notifications = null;
+  if (sendNotification) {
+    const smsType = method === 'cod' ? 'confirmed' : 'payment';
+    notifications = await notifyCustomer(order, order.billText, {
+      smsText: buildSmsText(order, smsType),
+      pdfUrl,
+      logoUrl: getLogoPublicUrl(BASE_URL),
+    });
+    updateOrder(invoiceNumber, { notifications, pdfUrl, billText: order.billText });
+  }
+
+  return { order, upi, pdfUrl, notifications };
 }
 
 function parseDateFilters(req) {
@@ -489,6 +610,63 @@ app.get('/api/orders/:invoiceNumber', (req, res) => {
   res.json({ ...order, pdfUrl: getPdfPublicUrl(order.invoiceNumber) });
 });
 
+app.post('/api/admin/bills', async (req, res) => {
+  if (!checkAdmin(req, res)) return;
+  try {
+    const {
+      customerName,
+      phone,
+      address,
+      items,
+      billDate,
+      billTime,
+      deliveryPreference,
+      notes,
+      paymentMethod,
+      couponCode,
+      couponSkipped,
+      consumerNumber,
+      sendNotification,
+    } = req.body;
+
+    if (!customerName?.trim()) return res.status(400).json({ error: 'Customer name is required' });
+    if (!phone?.trim()) return res.status(400).json({ error: 'Phone number is required' });
+    if (!address?.trim()) return res.status(400).json({ error: 'Delivery address is required' });
+    if (!items?.length) return res.status(400).json({ error: 'At least one item is required' });
+
+    const createdAt = parseBillDateTime(billDate, billTime);
+    const result = await createOrderRecord({
+      customerName,
+      phone,
+      address,
+      items,
+      couponCode,
+      couponSkipped,
+      paymentMethod,
+      deliveryPreference,
+      notes,
+      consumerNumberOverride: consumerNumber,
+      createdAt,
+      isManualBill: true,
+      sendNotification: Boolean(sendNotification),
+    });
+
+    res.status(201).json({
+      success: true,
+      order: { ...result.order, pdfUrl: result.pdfUrl },
+      pdfUrl: result.pdfUrl,
+      billText: result.order.billText,
+      message: result.notifications
+        ? 'Manual bill created and sent to customer.'
+        : 'Manual bill created successfully.',
+      notifications: result.notifications,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ error: err.message || 'Failed to create manual bill' });
+  }
+});
+
 app.post('/api/orders', async (req, res) => {
   try {
     const {
@@ -508,92 +686,38 @@ app.post('/api/orders', async (req, res) => {
     if (!address?.trim()) return res.status(400).json({ error: 'Delivery address is required' });
     if (!items?.length) return res.status(400).json({ error: 'At least one item is required' });
 
-    const normalizedPhone = normalizePhone(phone);
-    if (normalizedPhone.length !== 10) {
-      return res.status(400).json({ error: 'Enter a valid 10-digit WhatsApp number' });
-    }
-
-    const consumer = resolveConsumer(normalizedPhone, {
-      customerName: customerName.trim(),
-      address: address.trim(),
+    const method = paymentMethod === 'cod' ? 'cod' : 'upi';
+    const result = await createOrderRecord({
+      customerName,
+      phone,
+      address,
+      items,
+      couponCode,
+      couponSkipped,
+      paymentMethod: method,
+      deliveryPreference,
+      notes,
+      sendNotification: method === 'cod',
     });
 
-    const method = paymentMethod === 'cod' ? 'cod' : 'upi';
-    if (method === 'upi' && !BUSINESS.upiId) {
-      return res.status(400).json({ error: 'UPI payment is not configured. Choose Cash on Delivery.' });
-    }
+    const { order, upi, pdfUrl, notifications } = result;
+    let finalNotifications = notifications;
 
-    const pricing = getPricing();
-    const effectiveCoupon = resolveOrderCoupon(items, couponCode, Boolean(couponSkipped));
-    const bill = calculateBill(items, pricing, effectiveCoupon);
-    const invoiceNumber = generateInvoiceNumber();
-
-    const order = {
-      id: uuidv4(),
-      invoiceNumber,
-      customerName: customerName.trim(),
-      phone: normalizedPhone,
-      address: address.trim(),
-      consumerNumber: consumer.consumerNumber,
-      deliveryPreference: deliveryPreference || 'Standard (1-2 days)',
-      notes: notes?.trim() || '',
-      paymentMethod: method,
-      paymentStatus: method === 'cod' ? 'not_required' : 'pending',
-      status: method === 'cod' ? 'confirmed' : 'awaiting_payment',
-      couponCode: bill.coupon?.code || null,
-      bill,
-      createdAt: new Date().toISOString(),
-    };
-
-    refreshCustomerBill(order);
-
-    if (bill.coupon) incrementCouponUsage(bill.coupon.code);
-
-    await ensureOrderPdf(order);
-    const pdfUrl = getPdfPublicUrl(invoiceNumber);
-    order.pdfUrl = pdfUrl;
-
-    let upi = null;
     if (method === 'upi') {
-      upi = await buildUpiPayment({
-        vpa: BUSINESS.upiId,
-        payeeName: BUSINESS.upiName,
-        amount: bill.grandTotal,
-        invoiceNumber,
-      });
-      order.upi = upi;
-    }
-
-    saveOrder(order);
-
-    refreshCustomerBill(order);
-
-    let notifications = null;
-    if (method === 'cod') {
-      notifications = await notifyCustomer(order, order.billText, {
-        smsText: buildSmsText(order, 'confirmed'),
-        pdfUrl,
-        logoUrl: getLogoPublicUrl(BASE_URL),
-      });
-      updateOrder(invoiceNumber, { notifications, pdfUrl, billText: order.billText });
-    } else {
-      const sms = await notifyCustomer(order, order.billText, {
+      finalNotifications = await notifyCustomer(order, order.billText, {
         smsText: buildSmsText(order, 'payment'),
         pdfUrl,
         logoUrl: getLogoPublicUrl(BASE_URL),
       });
-      updateOrder(invoiceNumber, {
-        notifications: { sms: sms.sms, whatsapp: sms.whatsapp },
+      updateOrder(order.invoiceNumber, {
+        notifications: { sms: finalNotifications.sms, whatsapp: finalNotifications.whatsapp },
         pdfUrl,
         billText: order.billText,
       });
       await notifyBusiness(
-        `New LPG order ${invoiceNumber}: ${order.customerName}, ₹${bill.grandTotal}. UPI payment pending.`
+        `New LPG order ${order.invoiceNumber}: ${order.customerName}, ₹${order.bill.grandTotal}. UPI payment pending.`
       );
     }
-
-    refreshCustomerBill(order);
-    updateOrder(invoiceNumber, { billText: order.billText });
 
     res.status(201).json({
       success: true,
@@ -604,7 +728,7 @@ app.post('/api/orders', async (req, res) => {
         method === 'cod'
           ? 'Order confirmed! Bill sent via WhatsApp/SMS.'
           : 'Order placed! Complete UPI payment to confirm.',
-      notifications,
+      notifications: finalNotifications,
     });
   } catch (err) {
     console.error(err);
