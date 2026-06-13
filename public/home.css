@@ -124,6 +124,16 @@ a { color: inherit; text-decoration: none; }
   border: 2px solid rgba(255,255,255,0.85);
 }
 
+.btn-outline:hover {
+  background: rgba(255,255,255,0.25);
+}
+
+.sticky-cta .btn-outline {
+  background: white;
+  color: var(--go-red);
+  border: 2px solid var(--go-red);
+}
+
 .btn-whatsapp {
   background: #25d366;
   color: white;
