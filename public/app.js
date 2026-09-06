@@ -379,12 +379,20 @@ document.getElementById('booking-form').addEventListener('submit', async (e) => 
     customerName: document.getElementById('customerName').value,
     phone: document.getElementById('phone').value,
     address: document.getElementById('address').value,
+    customerGstin: document.getElementById('customerGstin')?.value.trim().toUpperCase() || null,
     deliveryPreference: document.getElementById('deliveryPreference').value,
     notes: document.getElementById('notes').value,
     couponCode: couponManuallyRemoved ? null : (appliedCoupon || getAutoCouponForCart(items)),
     couponSkipped: couponManuallyRemoved,
     items,
   };
+
+  const gstin = payload.customerGstin;
+  if (gstin && !/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test(gstin)) {
+    errEl.textContent = t('customerGstinInvalid');
+    errEl.classList.remove('hidden');
+    return;
+  }
 
   if (IS_OWNER) {
     payload.paymentMethod = getPaymentMethod();

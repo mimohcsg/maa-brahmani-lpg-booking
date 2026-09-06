@@ -103,6 +103,7 @@ async function loadOrders() {
       </div>
       <p style="margin-top:0.5rem;"><strong>${o.customerName}</strong> · ${o.phone}</p>
       ${o.consumerNumber ? `<p class="meta">Consumer No: <strong>${o.consumerNumber}</strong></p>` : ''}
+      ${o.customerGstin ? `<p class="meta">Customer GSTIN: <strong>${o.customerGstin}</strong></p>` : ''}
       <p class="meta">${o.address}</p>
       <p style="margin-top:0.5rem;font-size:0.85rem;">
         ${o.bill.lineItems.map((i) => `${i.name} × ${i.quantity}`).join(' · ')}
@@ -836,11 +837,18 @@ document.getElementById('manual-bill-form')?.addEventListener('submit', async (e
     return;
   }
 
+  const customerGstin = document.getElementById('manual-customer-gstin').value.trim().toUpperCase() || null;
+  if (customerGstin && !/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test(customerGstin)) {
+    showManualBillError('Enter a valid 15-character customer GSTIN');
+    return;
+  }
+
   const payload = {
     customerName: document.getElementById('manual-customer-name').value,
     phone: document.getElementById('manual-phone').value,
     address: document.getElementById('manual-address').value,
     consumerNumber: document.getElementById('manual-consumer').value.trim() || null,
+    customerGstin,
     billDate: document.getElementById('manual-bill-date').value,
     billTime: document.getElementById('manual-bill-time').value,
     deliveryPreference: document.getElementById('manual-delivery').value,

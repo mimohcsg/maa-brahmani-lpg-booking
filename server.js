@@ -162,6 +162,18 @@ function parseBillDateTime(dateStr, timeStr) {
   return parsed.toISOString();
 }
 
+function normalizeCustomerGstin(value) {
+  return String(value || '')
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, '');
+}
+
+function isValidGstin(value) {
+  if (!value) return true;
+  return /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test(value);
+}
+
 async function createOrderRecord({
   customerName,
   phone,
@@ -173,6 +185,7 @@ async function createOrderRecord({
   deliveryPreference,
   notes,
   consumerNumberOverride,
+  customerGstin,
   createdAt,
   isManualBill = false,
   sendNotification = false,
@@ -182,6 +195,11 @@ async function createOrderRecord({
   const normalizedPhone = normalizePhone(phone);
   if (normalizedPhone.length !== 10) {
     throw new Error('Enter a valid 10-digit WhatsApp number');
+  }
+
+  const gstin = normalizeCustomerGstin(customerGstin);
+  if (gstin && !isValidGstin(gstin)) {
+    throw new Error('Enter a valid 15-character customer GSTIN');
   }
 
   let consumer = resolveConsumer(normalizedPhone, {
@@ -214,6 +232,7 @@ async function createOrderRecord({
     phone: normalizedPhone,
     address: address.trim(),
     consumerNumber: consumer.consumerNumber,
+    customerGstin: gstin || null,
     deliveryPreference: deliveryPreference || 'Standard (1-2 days)',
     notes: notes?.trim() || '',
     paymentMethod: method,
@@ -321,6 +340,7 @@ function buildBillText(order, business) {
     `Phone: ${order.phone}`,
     `Address: ${order.address}`,
     order.consumerNumber ? `Consumer No: ${order.consumerNumber}` : null,
+    order.customerGstin ? `Customer GSTIN: ${order.customerGstin}` : null,
     '',
     '*Order Details*',
     ...(order.isManualBill
@@ -727,6 +747,7 @@ app.post('/api/admin/bills', async (req, res) => {
       couponCode,
       couponSkipped,
       consumerNumber,
+      customerGstin,
       sendNotification,
       transportCharge,
     } = req.body;
@@ -749,6 +770,7 @@ app.post('/api/admin/bills', async (req, res) => {
       deliveryPreference,
       notes,
       consumerNumberOverride: consumerNumber,
+      customerGstin,
       createdAt,
       isManualBill: true,
       sendNotification: Boolean(sendNotification),
@@ -784,6 +806,7 @@ app.post('/api/orders', async (req, res) => {
       couponCode,
       couponSkipped,
       customerOrder,
+      customerGstin,
     } = req.body;
 
     if (!customerName?.trim()) return res.status(400).json({ error: 'Customer name is required' });
@@ -802,6 +825,7 @@ app.post('/api/orders', async (req, res) => {
         paymentMethod: 'cod',
         deliveryPreference,
         notes,
+        customerGstin,
         sendNotification: false,
         orderSource: 'customer_web',
       });
@@ -837,6 +861,7 @@ app.post('/api/orders', async (req, res) => {
       paymentMethod: method,
       deliveryPreference,
       notes,
+      customerGstin,
       sendNotification: method === 'cod',
     });
 

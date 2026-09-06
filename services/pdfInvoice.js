@@ -113,7 +113,14 @@ async function generateInvoicePdf(order, business) {
     doc.font('Helvetica-Bold').text('Invoice No', 40 + colW, y);
     doc.font('Helvetica').text(order.invoiceNumber, 40 + colW + 60, y);
 
-    y = doc.y + 18;
+    y = doc.y + 14;
+    if (order.customerGstin) {
+      doc.font('Helvetica-Bold').text('Customer GSTIN', 40, y);
+      doc.font('Helvetica').text(order.customerGstin, 130, y);
+      y = doc.y + 14;
+    } else {
+      y = doc.y + 18;
+    }
 
     // Table header
     const cols = [
