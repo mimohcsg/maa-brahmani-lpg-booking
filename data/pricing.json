@@ -9,6 +9,12 @@
       "gstPercent": 5
     },
     {
+      "id": "domestic-15",
+      "name": "15 kg Domestic LPG Cylinder + GST",
+      "price": 2475,
+      "gstPercent": 5
+    },
+    {
       "id": "cylinder-19",
       "name": "19.2 kg LPG Cylinder + GST",
       "price": 2800,

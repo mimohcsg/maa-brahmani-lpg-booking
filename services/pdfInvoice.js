@@ -14,9 +14,13 @@ const {
 const INVOICES_DIR = () => getInvoicesDir();
 
 const SAC_CODES = {
+  'domestic-10': '73110010',
+  'domestic-15': '73110010',
   'domestic-14': '73110010',
   'commercial-19': '73110010',
   'compact-5': '73110010',
+  'cylinder-19': '73110010',
+  'cylinder-19-hostel': '73110010',
 };
 
 function fmtMoney(n) {

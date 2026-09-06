@@ -25,6 +25,7 @@ const {
   calculateBill,
   calculateManualBill,
   ensureDefaultCoupons,
+  ensureDefaultProducts,
   getAutoCouponCode,
   resolveOrderCoupon,
   DEFAULT_COUPON_CODE,
@@ -935,6 +936,7 @@ app.patch('/api/orders/:invoiceNumber/confirm-payment', async (req, res) => {
 
 app.listen(PORT, async () => {
   getPricing();
+  ensureDefaultProducts();
   getCoupons();
   ensureDefaultCoupons();
   await ensureLogoPng();

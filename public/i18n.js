@@ -95,9 +95,13 @@ const TRANSLATIONS = {
     couponRemoved: 'Coupon removed',
     couponInvalid: 'Invalid coupon',
     products: {
+      'domestic-10': '10 kg Domestic LPG Cylinder + GST',
+      'domestic-15': '15 kg Domestic LPG Cylinder + GST',
       'domestic-14': '14.2 kg Domestic LPG Cylinder',
       'commercial-19': '19 kg Commercial LPG Cylinder',
       'compact-5': '5 kg Compact LPG Cylinder',
+      'cylinder-19': '19.2 kg LPG Cylinder + GST',
+      'cylinder-19-hostel': '19.2 kg LPG Cylinder Hostel + GST',
     },
   },
   hi: {
@@ -196,9 +200,13 @@ const TRANSLATIONS = {
     couponRemoved: 'कूपन हटा दिया गया',
     couponInvalid: 'अमान्य कूपन',
     products: {
+      'domestic-10': '10 किग्रा घरेलू एलपीजी सिलेंडर + GST',
+      'domestic-15': '15 किग्रा घरेलू एलपीजी सिलेंडर + GST',
       'domestic-14': '14.2 किग्रा घरेलू एलपीजी सिलेंडर',
       'commercial-19': '19 किग्रा व्यावसायिक एलपीजी सिलेंडर',
       'compact-5': '5 किग्रा छोटा एलपीजी सिलेंडर',
+      'cylinder-19': '19.2 किग्रा एलपीजी सिलेंडर + GST',
+      'cylinder-19-hostel': '19.2 किग्रा एलपीजी सिलेंडर हॉस्टल + GST',
     },
   },
 };

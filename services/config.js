@@ -26,9 +26,10 @@ const DEFAULT_PRICING = {
   deliveryCharge: 50,
   deliveryGstPercent: 5,
   products: [
-    { id: 'domestic-14', name: '14.2 kg Domestic LPG Cylinder', price: 950, gstPercent: 5 },
-    { id: 'commercial-19', name: '19 kg Commercial LPG Cylinder', price: 1650, gstPercent: 5 },
-    { id: 'compact-5', name: '5 kg Compact LPG Cylinder', price: 520, gstPercent: 5 },
+    { id: 'domestic-10', name: '10 kg Domestic LPG Cylinder + GST', price: 1650, gstPercent: 5 },
+    { id: 'domestic-15', name: '15 kg Domestic LPG Cylinder + GST', price: 2475, gstPercent: 5 },
+    { id: 'cylinder-19', name: '19.2 kg LPG Cylinder + GST', price: 2800, gstPercent: 18 },
+    { id: 'cylinder-19-hostel', name: '19.2 kg LPG Cylinder Hostel + GST', price: 3000, gstPercent: 5 },
   ],
 };
 
@@ -51,12 +52,29 @@ function writeJson(file, data) {
 }
 
 function getPricing() {
-  return readJson(PRICING_FILE, DEFAULT_PRICING, SEED_PRICING_FILE);
+  const pricing = readJson(PRICING_FILE, DEFAULT_PRICING, SEED_PRICING_FILE);
+  return ensureDefaultProducts(pricing);
 }
 
 function savePricing(pricing) {
   writeJson(PRICING_FILE, pricing);
   return pricing;
+}
+
+function ensureDefaultProducts(pricing = null) {
+  const current = pricing || readJson(PRICING_FILE, DEFAULT_PRICING, SEED_PRICING_FILE);
+  if (!Array.isArray(current.products)) current.products = [];
+
+  let changed = false;
+  for (const seed of DEFAULT_PRICING.products) {
+    if (!current.products.some((p) => p.id === seed.id)) {
+      current.products.push({ ...seed });
+      changed = true;
+    }
+  }
+
+  if (changed) savePricing(current);
+  return current;
 }
 
 function getCoupons() {
@@ -387,6 +405,7 @@ module.exports = {
   calculateBill,
   calculateManualBill,
   ensureDefaultCoupons,
+  ensureDefaultProducts,
   getAutoCouponCode,
   resolveOrderCoupon,
   cartHasProduct,
